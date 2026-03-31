@@ -5,6 +5,8 @@ type DiagramRequest = {
   prompt?: string;
 };
 
+type Provider = "mistral" | "openai";
+
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as DiagramRequest;
@@ -15,12 +17,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
     }
 
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
+    const provider: Provider = process.env.MISTRAL_API_KEY ? "mistral" : "openai";
+    const mistralKey = process.env.MISTRAL_API_KEY;
+    const openaiKey = process.env.OPENAI_API_KEY;
+    if (provider === "mistral" && !mistralKey) {
+      return NextResponse.json({ error: "Missing MISTRAL_API_KEY" }, { status: 500 });
+    }
+    if (provider === "openai" && !openaiKey) {
       return NextResponse.json(
         {
           error:
-            "Missing OPENAI_API_KEY. Add it in apps/web/.env.local before using Text to diagram.",
+            "Missing MISTRAL_API_KEY or OPENAI_API_KEY. Add one in apps/web/.env.local before using Text to diagram.",
         },
         { status: 500 },
       );
@@ -31,20 +38,37 @@ export async function POST(request: Request) {
         ? "You are a Mermaid expert. Fix and improve the user's Mermaid diagram. Return ONLY valid Mermaid code with no markdown fences."
         : "You are a diagram assistant. Convert the user request into a clear Mermaid flowchart. Return ONLY valid Mermaid code with no markdown fences.";
 
-    const response = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: "gpt-4.1-mini",
-        input: [
-          { role: "system", content: [{ type: "text", text: systemInstruction }] },
-          { role: "user", content: [{ type: "text", text: prompt }] },
-        ],
-      }),
-    });
+    const response =
+      provider === "mistral"
+        ? await fetch("https://api.mistral.ai/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${mistralKey}`,
+            },
+            body: JSON.stringify({
+              model: "mistral-small-latest",
+              temperature: 0.2,
+              messages: [
+                { role: "system", content: systemInstruction },
+                { role: "user", content: prompt },
+              ],
+            }),
+          })
+        : await fetch("https://api.openai.com/v1/responses", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${openaiKey}`,
+            },
+            body: JSON.stringify({
+              model: "gpt-4.1-mini",
+              input: [
+                { role: "system", content: [{ type: "text", text: systemInstruction }] },
+                { role: "user", content: [{ type: "text", text: prompt }] },
+              ],
+            }),
+          });
 
     if (!response.ok) {
       const details = await response.text();
@@ -54,8 +78,11 @@ export async function POST(request: Request) {
       );
     }
 
-    const json = (await response.json()) as { output_text?: string };
-    const mermaid = (json.output_text ?? "").trim();
+    const json = (await response.json()) as any;
+    const mermaid =
+      provider === "mistral"
+        ? String(json?.choices?.[0]?.message?.content ?? "").trim()
+        : String(json?.output_text ?? "").trim();
 
     if (!mermaid) {
       return NextResponse.json(

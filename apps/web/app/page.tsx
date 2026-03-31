@@ -111,6 +111,93 @@ const DEFAULT_OPACITY = 100;
 const STYLE_TOOLS: ToolId[] = ["draw", "rectangle", "diamond", "ellipse", "arrow", "line", "text"];
 const CANVAS_BACKGROUNDS = ["#f7f7fb", "#f2f4f8", "#ecf1f8", "#efeedf", "#ece9e7", "#ffffff"];
 const WS_PORT = process.env.NEXT_PUBLIC_WS_PORT ?? "8081";
+const MERMAID_BLOCK_STARTERS = [
+  "flowchart",
+  "graph",
+  "sequencediagram",
+  "classdiagram",
+  "statediagram",
+  "erdiagram",
+] as const;
+
+const normalizeMermaidCode = (input: string) => {
+  let value = input.trim();
+  value = value.replace(/^```(?:mermaid)?\s*/i, "").replace(/\s*```$/, "").trim();
+  value = value.replace(/^mermaid\s*/i, "");
+
+  const lowered = value.toLowerCase();
+  const startIndex = MERMAID_BLOCK_STARTERS.reduce<number>((index, starter) => {
+    const nextIndex = lowered.indexOf(starter);
+    if (nextIndex < 0) {
+      return index;
+    }
+    if (index < 0 || nextIndex < index) {
+      return nextIndex;
+    }
+    return index;
+  }, -1);
+
+  if (startIndex > 0) {
+    value = value.slice(startIndex).trim();
+  }
+
+  return value;
+};
+
+const toSvgDataUrl = (svg: string) =>
+  `data:image/svg+xml;base64,${window.btoa(unescape(encodeURIComponent(svg)))}`;
+
+const renderMermaidToImageUrl = async (code: string) => {
+  const mermaid = (await import("mermaid")).default;
+  mermaid.initialize({
+    startOnLoad: false,
+    securityLevel: "loose",
+    theme: "default",
+  });
+  const id = `mmd-${Math.random().toString(36).slice(2, 10)}`;
+  const { svg } = await mermaid.render(id, code);
+  return toSvgDataUrl(svg);
+};
+
+const canonicalizeFlowchart = (input: string) => {
+  const headerMatch = input.match(/\b(flowchart|graph)\s+(TD|TB|LR|RL|BT)\b/i);
+  if (!headerMatch) {
+    return input;
+  }
+
+  const nodeMap = new Map<string, string>();
+  const nodeRegex = /([A-Za-z0-9_]+)\[([^\]]+)\]/g;
+  let nodeMatch = nodeRegex.exec(input);
+  while (nodeMatch) {
+    const id = nodeMatch[1];
+    const label = nodeMatch[2]?.trim();
+    if (id && label && !nodeMap.has(id)) {
+      nodeMap.set(id, label);
+    }
+    nodeMatch = nodeRegex.exec(input);
+  }
+
+  const edges: string[] = [];
+  const edgeRegex = /([A-Za-z0-9_]+)\s*-->\s*(?:\|([^|]+)\|)?\s*([A-Za-z0-9_]+)/g;
+  let edgeMatch = edgeRegex.exec(input);
+  while (edgeMatch) {
+    const from = edgeMatch[1];
+    const label = edgeMatch[2]?.trim();
+    const to = edgeMatch[3];
+    if (from && to) {
+      edges.push(label ? `${from} -->|${label}| ${to}` : `${from} --> ${to}`);
+    }
+    edgeMatch = edgeRegex.exec(input);
+  }
+
+  if (edges.length === 0) {
+    return input;
+  }
+
+  const header = `${headerMatch[1]} ${headerMatch[2]}`;
+  const nodeLines = Array.from(nodeMap.entries()).map(([id, label]) => `${id}["${label}"]`);
+  return [header, ...nodeLines, ...edges].join("\n");
+};
 
 const toolIcon = (id: MainToolId | "eraser" | "more" | "lock"): ReactNode => {
   if (id === "lock") {
@@ -459,17 +546,48 @@ export default function Home() {
         return;
       }
 
-      const note: TextElement = {
-        id: makeId(),
-        kind: "text",
-        point: { x: 120, y: 180 },
-        value: `Mermaid\n${data.mermaid}`,
-        color: strokeColor,
-        opacity: strokeOpacity,
-      };
-      setElements((previous) => [...previous, note]);
+      const mermaidCode = canonicalizeFlowchart(normalizeMermaidCode(data.mermaid));
+      if (!mermaidCode) {
+        setGenerateError("Generated Mermaid was empty.");
+        setIsGenerating(false);
+        return;
+      }
+
+      const diagramSrc = await renderMermaidToImageUrl(mermaidCode);
+      const canRenderDiagram = await new Promise<boolean>((resolve) => {
+        const image = new window.Image();
+        image.onload = () => resolve(true);
+        image.onerror = () => resolve(false);
+        image.src = diagramSrc;
+      });
+
+      if (canRenderDiagram) {
+        const diagramImage: ImageElement = {
+          id: makeId(),
+          kind: "image",
+          point: { x: 120, y: 160 },
+          width: 860,
+          height: 480,
+          src: diagramSrc,
+        };
+        setElements((previous) => [...previous, diagramImage]);
+      } else {
+        const note: TextElement = {
+          id: makeId(),
+          kind: "text",
+          point: { x: 120, y: 180 },
+          value: `Mermaid render failed. Raw output:\n${mermaidCode}`,
+          color: strokeColor,
+          opacity: strokeOpacity,
+        };
+        setElements((previous) => [...previous, note]);
+        setStatusMessage("Diagram text generated, but rendering failed");
+        setShowGenerateModal(false);
+        setIsGenerating(false);
+        return;
+      }
       setShowGenerateModal(false);
-      setStatusMessage("Diagram generated successfully");
+      setStatusMessage("Diagram generated and rendered");
     } catch (error) {
       setGenerateError(`Generation failed: ${String(error)}`);
     } finally {
