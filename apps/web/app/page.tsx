@@ -319,10 +319,21 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-    const wsUrl = new URL(`${protocol}://${window.location.hostname}`);
-    wsUrl.port = WS_PORT;
-    const socket = new WebSocket(wsUrl.toString());
+    const publicWs = process.env.NEXT_PUBLIC_WS_URL?.trim();
+    const wsUrlString = (() => {
+      if (publicWs) {
+        if (publicWs.startsWith("ws://") || publicWs.startsWith("wss://")) {
+          return publicWs;
+        }
+        const host = publicWs.replace(/^https?:\/\//, "");
+        return `wss://${host}`;
+      }
+      const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+      const wsUrl = new URL(`${protocol}://${window.location.hostname}`);
+      wsUrl.port = WS_PORT;
+      return wsUrl.toString();
+    })();
+    const socket = new WebSocket(wsUrlString);
     socketRef.current = socket;
     setIsRoomHydrated(false);
 
@@ -337,7 +348,7 @@ export default function Home() {
     };
 
     socket.onerror = () => {
-      setStatusMessage(`WebSocket failed: ${wsUrl.toString()}`);
+      setStatusMessage(`WebSocket failed: ${wsUrlString}`);
     };
 
     socket.onmessage = (event) => {

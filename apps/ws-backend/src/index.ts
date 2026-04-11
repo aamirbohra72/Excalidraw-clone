@@ -1,12 +1,25 @@
+import http from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
 import jwt from "jsonwebtoken";
 import { JWT_SECRET } from "@repo/backend-common/config";
 import { prismaClient } from "@repo/db/client";
 
-const WS_BACKEND_PORT = Number(process.env.WS_BACKEND_PORT ?? 8082);
-const wss = new WebSocketServer({ port: WS_BACKEND_PORT });
+// Render and other hosts set PORT; local dev uses WS_BACKEND_PORT (default 8082).
+const WS_BACKEND_PORT = Number(process.env.PORT ?? process.env.WS_BACKEND_PORT ?? 8082);
 
-wss.on("error", (err: NodeJS.ErrnoException) => {
+const server = http.createServer((req, res) => {
+  if (req.url === "/" || req.url?.startsWith("/health")) {
+    res.writeHead(200, { "Content-Type": "text/plain" });
+    res.end("ok");
+    return;
+  }
+  res.writeHead(404);
+  res.end();
+});
+
+const wss = new WebSocketServer({ server });
+
+server.on("error", (err: NodeJS.ErrnoException) => {
   if (err.code === "EADDRINUSE") {
     console.error(
       `[ws-backend] Port ${String(WS_BACKEND_PORT)} is already in use. Stop the other process using that port (or another ws-backend / turbo dev), or set WS_BACKEND_PORT and NEXT_PUBLIC_WS_PORT in the repo .env.`
@@ -15,6 +28,10 @@ wss.on("error", (err: NodeJS.ErrnoException) => {
     console.error("[ws-backend] WebSocketServer error:", err);
   }
   process.exit(1);
+});
+
+server.listen(WS_BACKEND_PORT, () => {
+  console.log(`[ws-backend] HTTP + WebSocket listening on ${String(WS_BACKEND_PORT)}`);
 });
 
 type CanvasState = {
