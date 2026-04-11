@@ -7,12 +7,10 @@ package-lock.json
 .pnp
 .pnp.js
 
-# Local env files
+# Local env files — never commit secrets (use .env.example as a template only)
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*
+!.env.example
 
 # Testing
 coverage
@@ -39,3 +37,7 @@ yarn-error.log*
 .DS_Store
 .vscode
 *.pem
+
+# Local tooling / agent metadata (not application source)
+skills-lock.json
+.agents/skills/neon-postgres/SKILL.md

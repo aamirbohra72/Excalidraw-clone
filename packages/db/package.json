@@ -3,15 +3,17 @@
   "version": "1.0.0",
   "main": "index.js",
 
-  "exports":{
-   "./client": "./src/index.ts"
-},
+  "exports": {
+    "./client": "./dist/index.js"
+  },
   "scripts": {
+    "build": "tsc -p tsconfig.json",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
     "@prisma/client": "6.2.1",
     "@repo/typescript-config": "workspace:*",
+    "dotenv": "^16.4.5",
     "prisma": "^6.2.1"
   },
   "keywords": [],

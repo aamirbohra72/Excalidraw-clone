@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import styles from "./page.module.css";
 
 const MAIN_TOOLS = [
@@ -110,7 +110,7 @@ const DEFAULT_STROKE_WIDTH = 2;
 const DEFAULT_OPACITY = 100;
 const STYLE_TOOLS: ToolId[] = ["draw", "rectangle", "diamond", "ellipse", "arrow", "line", "text"];
 const CANVAS_BACKGROUNDS = ["#f7f7fb", "#f2f4f8", "#ecf1f8", "#efeedf", "#ece9e7", "#ffffff"];
-const WS_PORT = process.env.NEXT_PUBLIC_WS_PORT ?? "8081";
+const WS_PORT = process.env.NEXT_PUBLIC_WS_PORT ?? "8082";
 const MERMAID_BLOCK_STARTERS = [
   "flowchart",
   "graph",
@@ -309,7 +309,8 @@ export default function Home() {
     return () => media.removeEventListener("change", apply);
   }, []);
 
-  useEffect(() => {
+  // Apply ?room= before paint so the WebSocket effect (below) never connects with the wrong room.
+  useLayoutEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const room = params.get("room");
     if (room?.trim()) {
@@ -330,7 +331,6 @@ export default function Home() {
         JSON.stringify({
           type: "join_room",
           roomId,
-          clientId: clientIdRef.current,
         }),
       );
       setStatusMessage(`Connected to room: ${roomId}`);
@@ -397,6 +397,17 @@ export default function Home() {
     };
   }, [roomId]);
 
+  // If the server never sends canvas_state (e.g. DB error), still allow BroadcastChannel + WS sends once connected.
+  useEffect(() => {
+    if (isRoomHydrated) {
+      return;
+    }
+    const t = window.setTimeout(() => {
+      setIsRoomHydrated(true);
+    }, 4000);
+    return () => window.clearTimeout(t);
+  }, [roomId, isRoomHydrated]);
+
   useEffect(() => {
     const channel = new BroadcastChannel(`draw-app-room-${roomId}`);
     broadcastRef.current = channel;
@@ -450,14 +461,10 @@ export default function Home() {
     if (Date.now() < suppressSyncUntilRef.current) {
       return;
     }
-    const socket = socketRef.current;
-    if (!socket || socket.readyState !== WebSocket.OPEN) {
-      return;
-    }
 
     const timeout = window.setTimeout(() => {
-      broadcastRef.current?.postMessage({
-        type: "canvas_update",
+      const payload = {
+        type: "canvas_update" as const,
         roomId,
         clientId: clientIdRef.current,
         state: {
@@ -466,21 +473,15 @@ export default function Home() {
           pan,
           backgroundColor,
         },
-      });
+      };
 
-      socket.send(
-        JSON.stringify({
-          type: "canvas_update",
-          roomId,
-          clientId: clientIdRef.current,
-          state: {
-            canvasName,
-            elements,
-            pan,
-            backgroundColor,
-          },
-        }),
-      );
+      // Same-browser tabs: always use BroadcastChannel (works even if WebSocket/DB fail).
+      broadcastRef.current?.postMessage(payload);
+
+      const socket = socketRef.current;
+      if (socket?.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify(payload));
+      }
     }, 120);
 
     return () => window.clearTimeout(timeout);

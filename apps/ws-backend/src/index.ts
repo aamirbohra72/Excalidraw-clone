@@ -3,8 +3,19 @@ import jwt from "jsonwebtoken";
 import { JWT_SECRET } from "@repo/backend-common/config";
 import { prismaClient } from "@repo/db/client";
 
-const WS_BACKEND_PORT = Number(process.env.WS_BACKEND_PORT ?? 8081);
+const WS_BACKEND_PORT = Number(process.env.WS_BACKEND_PORT ?? 8082);
 const wss = new WebSocketServer({ port: WS_BACKEND_PORT });
+
+wss.on("error", (err: NodeJS.ErrnoException) => {
+  if (err.code === "EADDRINUSE") {
+    console.error(
+      `[ws-backend] Port ${String(WS_BACKEND_PORT)} is already in use. Stop the other process using that port (or another ws-backend / turbo dev), or set WS_BACKEND_PORT and NEXT_PUBLIC_WS_PORT in the repo .env.`
+    );
+  } else {
+    console.error("[ws-backend] WebSocketServer error:", err);
+  }
+  process.exit(1);
+});
 
 type CanvasState = {
   canvasName: string;
@@ -44,10 +55,6 @@ function checkUser(token: string): string | null {
   } catch {
     return null;
   }
-}
-
-function getStateForRoom(roomId: string): CanvasState {
-  return roomStates.get(roomId) ?? DEFAULT_CANVAS_STATE;
 }
 
 async function loadStateForRoom(roomId: string): Promise<CanvasState> {
@@ -108,6 +115,13 @@ function broadcastToRoom(roomId: string, message: unknown, except?: WebSocket) {
   });
 }
 
+function asObject(value: unknown): Record<string, unknown> | null {
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return null;
+}
+
 wss.on("connection", function connection(ws, request) {
   const url = request.url;
   const queryParams = new URLSearchParams(url?.split("?")[1] ?? "");
@@ -122,10 +136,18 @@ wss.on("connection", function connection(ws, request) {
 
   ws.on("message", async function message(data) {
     const raw = typeof data === "string" ? data : data.toString();
-    let parsedData: any;
+    let parsed: unknown;
     try {
-      parsedData = JSON.parse(raw);
+      parsed = JSON.parse(raw);
     } catch {
+      return;
+    }
+    if (typeof parsed !== "object" || parsed === null || !("type" in parsed)) {
+      return;
+    }
+    const parsedData = parsed as Record<string, unknown>;
+    const msgType = parsedData.type;
+    if (typeof msgType !== "string") {
       return;
     }
 
@@ -134,7 +156,7 @@ wss.on("connection", function connection(ws, request) {
       return;
     }
 
-    if (parsedData.type === "join_room") {
+    if (msgType === "join_room") {
       const roomId = String(parsedData.roomId ?? "");
       if (!roomId) {
         return;
@@ -142,32 +164,40 @@ wss.on("connection", function connection(ws, request) {
       if (!currentUser.rooms.includes(roomId)) {
         currentUser.rooms.push(roomId);
       }
-      const state = await loadStateForRoom(roomId);
+      let state: CanvasState;
+      try {
+        state = await loadStateForRoom(roomId);
+      } catch (err) {
+        console.error("[ws-backend] loadStateForRoom failed; sending default canvas state", err);
+        state = { ...DEFAULT_CANVAS_STATE };
+      }
       ws.send(JSON.stringify({ type: "canvas_state", roomId, state }));
       return;
     }
 
-    if (parsedData.type === "leave_room") {
+    if (msgType === "leave_room") {
       const roomId = String(parsedData.roomId ?? "");
       currentUser.rooms = currentUser.rooms.filter((item) => item !== roomId);
       return;
     }
 
-    if (parsedData.type === "canvas_update") {
+    if (msgType === "canvas_update") {
       const roomId = String(parsedData.roomId ?? "");
       if (!roomId || !currentUser.rooms.includes(roomId)) {
         return;
       }
 
+      const stateObj = asObject(parsedData.state);
+      const panObj = stateObj ? asObject(stateObj.pan) : null;
       const state: CanvasState = {
-        canvasName: String(parsedData.state?.canvasName ?? DEFAULT_CANVAS_STATE.canvasName),
-        elements: Array.isArray(parsedData.state?.elements) ? parsedData.state.elements : [],
+        canvasName: String(stateObj?.canvasName ?? DEFAULT_CANVAS_STATE.canvasName),
+        elements: Array.isArray(stateObj?.elements) ? stateObj.elements : [],
         pan: {
-          x: Number(parsedData.state?.pan?.x ?? 0),
-          y: Number(parsedData.state?.pan?.y ?? 0),
+          x: Number(panObj?.x ?? 0),
+          y: Number(panObj?.y ?? 0),
         },
         backgroundColor: String(
-          parsedData.state?.backgroundColor ?? DEFAULT_CANVAS_STATE.backgroundColor,
+          stateObj?.backgroundColor ?? DEFAULT_CANVAS_STATE.backgroundColor,
         ),
         updatedAt: new Date().toISOString(),
       };
@@ -175,17 +205,21 @@ wss.on("connection", function connection(ws, request) {
       roomStates.set(roomId, state);
       const elementsJson = JSON.stringify(state.elements);
       const panJson = JSON.stringify(state.pan);
-      await prismaClient.$executeRaw`
-        INSERT INTO "CanvasState" ("roomIdentifier", "canvasName", "elements", "pan", "backgroundColor", "updatedAt")
-        VALUES (${roomId}, ${state.canvasName}, ${elementsJson}::jsonb, ${panJson}::jsonb, ${state.backgroundColor}, NOW())
-        ON CONFLICT ("roomIdentifier")
-        DO UPDATE SET
-          "canvasName" = EXCLUDED."canvasName",
-          "elements" = EXCLUDED."elements",
-          "pan" = EXCLUDED."pan",
-          "backgroundColor" = EXCLUDED."backgroundColor",
-          "updatedAt" = NOW()
-      `;
+      try {
+        await prismaClient.$executeRaw`
+          INSERT INTO "CanvasState" ("roomIdentifier", "canvasName", "elements", "pan", "backgroundColor", "updatedAt")
+          VALUES (${roomId}, ${state.canvasName}, ${elementsJson}::jsonb, ${panJson}::jsonb, ${state.backgroundColor}, NOW())
+          ON CONFLICT ("roomIdentifier")
+          DO UPDATE SET
+            "canvasName" = EXCLUDED."canvasName",
+            "elements" = EXCLUDED."elements",
+            "pan" = EXCLUDED."pan",
+            "backgroundColor" = EXCLUDED."backgroundColor",
+            "updatedAt" = NOW()
+        `;
+      } catch (err) {
+        console.error("[ws-backend] canvas persist failed; realtime broadcast still sent", err);
+      }
       broadcastToRoom(
         roomId,
         {
@@ -199,28 +233,30 @@ wss.on("connection", function connection(ws, request) {
       return;
     }
 
-    if (parsedData.type === "chat") {
-      const roomId = parsedData.roomId;
-      const message = parsedData.message;
+    if (msgType === "chat") {
+      const roomId = String(parsedData.roomId ?? "");
+      const chatBody = parsedData.message;
+      if (!roomId || !currentUser.rooms.includes(roomId) || chatBody === undefined || chatBody === null) {
+        return;
+      }
 
-      await prismaClient.chat.create({
-        data: {
-          roomId: Number(roomId),
-          message,
-          userId: currentUser.userId,
-        },
-      });
+      try {
+        await prismaClient.chat.create({
+          data: {
+            roomId: Number(roomId),
+            message: String(chatBody),
+            userId: currentUser.userId,
+          },
+        });
+      } catch (err) {
+        console.error("[ws-backend] chat persist failed", err);
+        return;
+      }
 
-      users.forEach((user) => {
-        if (user.rooms.includes(roomId)) {
-          user.ws.send(
-            JSON.stringify({
-              type: "chat",
-              message,
-              roomId,
-            }),
-          );
-        }
+      broadcastToRoom(roomId, {
+        type: "chat",
+        message: chatBody,
+        roomId,
       });
     }
   });
