@@ -2,6 +2,22 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import styles from "./page.module.css";
+import {
+  BUILTIN_ICONS,
+  ICON_CATEGORIES,
+  filterIcons,
+  loadCustomIcons,
+  saveCustomIcons,
+  type IconCategoryId,
+  type LibraryIcon,
+} from "./iconLibrary";
+import {
+  DIAGRAM_CATEGORIES,
+  DIAGRAM_TEMPLATES,
+  filterTemplates,
+  type DiagramTemplate,
+  type TemplateCategory,
+} from "./diagramTemplates";
 
 const MAIN_TOOLS = [
   { id: "hand", label: "Hand", keyHint: "" },
@@ -17,11 +33,12 @@ const MAIN_TOOLS = [
 ] as const;
 
 const EXTRA_TOOLS = [
-  { id: "frame", icon: "#", label: "Frame tool", shortcut: "F" },
-  { id: "webEmbed", icon: "<>", label: "Web Embed", shortcut: "" },
-  { id: "laser", icon: "✣", label: "Laser pointer", shortcut: "K" },
-  { id: "lasso", icon: "◌", label: "Lasso selection", shortcut: "" },
+  { id: "frame", label: "Frame tool", shortcut: "F" },
+  { id: "note", label: "Sticky note", shortcut: "N" },
 ] as const;
+
+const NOTE_COLORS = ["#fff3a3", "#ffd6e7", "#d4f5d8", "#d6e8ff", "#f3e8ff"] as const;
+const ICON_PLACE_SIZE = 64;
 
 type MainToolId = (typeof MAIN_TOOLS)[number]["id"];
 type ExtraToolId = (typeof EXTRA_TOOLS)[number]["id"];
@@ -77,12 +94,37 @@ type WebEmbedElement = {
   url: string;
 };
 
+type NoteElement = {
+  id: string;
+  kind: "note";
+  point: Point;
+  width: number;
+  height: number;
+  value: string;
+  color: string;
+};
+
+type TableField = { name: string; type: string; pk?: boolean };
+
+type TableElement = {
+  id: string;
+  kind: "table";
+  point: Point;
+  width: number;
+  title: string;
+  headerColor: string;
+  iconSrc?: string;
+  fields: TableField[];
+};
+
 type CanvasElement =
   | ShapeElement
   | DrawElement
   | TextElement
   | ImageElement
-  | WebEmbedElement;
+  | WebEmbedElement
+  | NoteElement
+  | TableElement;
 
 type RoomCanvasState = {
   canvasName: string;
@@ -199,7 +241,7 @@ const canonicalizeFlowchart = (input: string) => {
   return [header, ...nodeLines, ...edges].join("\n");
 };
 
-const toolIcon = (id: MainToolId | "eraser" | "more" | "lock"): ReactNode => {
+const toolIcon = (id: MainToolId | "eraser" | "more" | "lock" | "frame" | "note"): ReactNode => {
   if (id === "lock") {
     return (
       <svg viewBox="0 0 24 24" className={styles.toolSvg} aria-hidden>
@@ -219,11 +261,17 @@ const toolIcon = (id: MainToolId | "eraser" | "more" | "lock"): ReactNode => {
       </svg>
     );
   }
-  if (id === "select") return <span className={styles.iconGlyph}>↖</span>;
+  if (id === "select") {
+    return (
+      <svg viewBox="0 0 24 24" className={styles.toolSvg} aria-hidden>
+        <path d="M5 4.5 10.2 19l2.2-5.1L17.5 12z" />
+      </svg>
+    );
+  }
   if (id === "rectangle") {
     return (
       <svg viewBox="0 0 24 24" className={styles.toolSvg} aria-hidden>
-        <rect x="4.5" y="6.5" width="15" height="11" rx="0.8" />
+        <rect x="4.5" y="6.5" width="15" height="11" rx="1.5" />
       </svg>
     );
   }
@@ -241,11 +289,65 @@ const toolIcon = (id: MainToolId | "eraser" | "more" | "lock"): ReactNode => {
       </svg>
     );
   }
-  if (id === "arrow") return <span className={styles.iconGlyph}>→</span>;
-  if (id === "line") return <span className={styles.iconGlyph}>—</span>;
-  if (id === "draw") return <span className={styles.iconGlyph}>✎</span>;
-  if (id === "text") return <span className={styles.iconGlyph}>A</span>;
-  if (id === "image") return <span className={styles.iconGlyph}>▣</span>;
+  if (id === "arrow") {
+    return (
+      <svg viewBox="0 0 24 24" className={styles.toolSvg} aria-hidden>
+        <path d="M4 12h14" />
+        <path d="m13 6 6 6-6 6" />
+      </svg>
+    );
+  }
+  if (id === "line") {
+    return (
+      <svg viewBox="0 0 24 24" className={styles.toolSvg} aria-hidden>
+        <path d="M5 19 19 5" />
+      </svg>
+    );
+  }
+  if (id === "draw") {
+    return (
+      <svg viewBox="0 0 24 24" className={styles.toolSvg} aria-hidden>
+        <path d="M4 20c2-5 5-8 8-10" />
+        <path d="M14.5 5.5 18.5 9.5" />
+        <path d="M12.8 7.2 17 3a1.5 1.5 0 0 1 2.1 0l1.9 1.9a1.5 1.5 0 0 1 0 2.1l-4.2 4.2" />
+      </svg>
+    );
+  }
+  if (id === "text") {
+    return (
+      <svg viewBox="0 0 24 24" className={styles.toolSvg} aria-hidden>
+        <path d="M5 6h14" />
+        <path d="M12 6v13" />
+        <path d="M8 19h8" />
+      </svg>
+    );
+  }
+  if (id === "image") {
+    return (
+      <svg viewBox="0 0 24 24" className={styles.toolSvg} aria-hidden>
+        <rect x="3.5" y="5" width="17" height="14" rx="2" />
+        <circle cx="9" cy="10" r="1.6" />
+        <path d="m7.5 16 3.2-3.5 2.6 2.4L16 12l3 4" />
+      </svg>
+    );
+  }
+  if (id === "frame") {
+    return (
+      <svg viewBox="0 0 24 24" className={styles.toolSvg} aria-hidden>
+        <path d="M5 8V5h3M16 5h3v3M19 16v3h-3M8 19H5v-3" />
+        <rect x="8" y="8" width="8" height="8" rx="1" />
+      </svg>
+    );
+  }
+  if (id === "note") {
+    return (
+      <svg viewBox="0 0 24 24" className={styles.toolSvg} aria-hidden>
+        <path d="M6 4h9l5 5v11a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z" />
+        <path d="M14 4v5h5" />
+        <path d="M8 13h8M8 17h5" />
+      </svg>
+    );
+  }
   if (id === "eraser") {
     return (
       <svg viewBox="0 0 24 24" className={styles.toolSvg} aria-hidden>
@@ -254,7 +356,78 @@ const toolIcon = (id: MainToolId | "eraser" | "more" | "lock"): ReactNode => {
       </svg>
     );
   }
-  return <span className={styles.iconGlyph}>△</span>;
+  if (id === "more") {
+    return (
+      <svg viewBox="0 0 24 24" className={styles.toolSvg} aria-hidden>
+        <circle cx="6.5" cy="12" r="1.4" fill="currentColor" stroke="none" />
+        <circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none" />
+        <circle cx="17.5" cy="12" r="1.4" fill="currentColor" stroke="none" />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 24 24" className={styles.toolSvg} aria-hidden>
+      <circle cx="12" cy="12" r="7" />
+    </svg>
+  );
+};
+
+const menuGlyph = (kind: "catalog" | "icons" | "flow" | "arch" | "ai" | "mermaid") => {
+  if (kind === "catalog") {
+    return (
+      <svg viewBox="0 0 24 24" className={styles.menuGlyph} aria-hidden>
+        <rect x="4" y="4" width="7" height="7" rx="1.5" />
+        <rect x="13" y="4" width="7" height="7" rx="1.5" />
+        <rect x="4" y="13" width="7" height="7" rx="1.5" />
+        <rect x="13" y="13" width="7" height="7" rx="1.5" />
+      </svg>
+    );
+  }
+  if (kind === "icons") {
+    return (
+      <svg viewBox="0 0 24 24" className={styles.menuGlyph} aria-hidden>
+        <circle cx="8" cy="8" r="3" />
+        <rect x="13" y="5" width="6" height="6" rx="1.2" />
+        <path d="M5 19 9 13l3 3 3-4 4 7H5z" />
+      </svg>
+    );
+  }
+  if (kind === "flow") {
+    return (
+      <svg viewBox="0 0 24 24" className={styles.menuGlyph} aria-hidden>
+        <rect x="8" y="3" width="8" height="5" rx="1.2" />
+        <path d="M12 8v3" />
+        <path d="M12 11 7 15h10L12 11z" />
+        <path d="M7 15v2M17 15v2" />
+        <rect x="3" y="17" width="8" height="4" rx="1" />
+        <rect x="13" y="17" width="8" height="4" rx="1" />
+      </svg>
+    );
+  }
+  if (kind === "arch") {
+    return (
+      <svg viewBox="0 0 24 24" className={styles.menuGlyph} aria-hidden>
+        <rect x="3" y="14" width="6" height="6" rx="1.2" />
+        <rect x="9" y="8" width="6" height="12" rx="1.2" />
+        <rect x="15" y="4" width="6" height="16" rx="1.2" />
+      </svg>
+    );
+  }
+  if (kind === "ai") {
+    return (
+      <svg viewBox="0 0 24 24" className={styles.menuGlyph} aria-hidden>
+        <path d="M12 3 13.8 8.2 19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z" />
+        <path d="M18 15.5 18.8 17.7 21 18.5l-2.2.8L18 21.5l-.8-2.2L15 18.5l2.2-.8z" />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 24 24" className={styles.menuGlyph} aria-hidden>
+      <path d="M4 7c4-4 8 4 12 0" />
+      <path d="M4 12c4-4 8 4 12 0" />
+      <path d="M4 17c4-4 8 4 12 0" />
+    </svg>
+  );
 };
 
 export default function Home() {
@@ -265,8 +438,6 @@ export default function Home() {
   const [canvasName, setCanvasName] = useState("Untitled canvas");
   const [elements, setElements] = useState<CanvasElement[]>([]);
   const [draftElement, setDraftElement] = useState<ShapeElement | DrawElement | null>(null);
-  const [lassoDraft, setLassoDraft] = useState<Point[]>([]);
-  const [laserDraft, setLaserDraft] = useState<Point[]>([]);
   const [pendingImagePoint, setPendingImagePoint] = useState<Point | null>(null);
   const [pan, setPan] = useState<Point>({ x: 0, y: 0 });
   const [handStart, setHandStart] = useState<Point | null>(null);
@@ -283,8 +454,18 @@ export default function Home() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generateError, setGenerateError] = useState("");
   const [isRoomHydrated, setIsRoomHydrated] = useState(false);
+  const [showIconsPanel, setShowIconsPanel] = useState(false);
+  const [showCatalogPanel, setShowCatalogPanel] = useState(false);
+  const [catalogSearch, setCatalogSearch] = useState("");
+  const [catalogCategory, setCatalogCategory] = useState<TemplateCategory | "all">("all");
+  const [iconSearch, setIconSearch] = useState("");
+  const [iconCategory, setIconCategory] = useState<IconCategoryId | "all">("all");
+  const [customIcons, setCustomIcons] = useState<LibraryIcon[]>([]);
+  const [pendingLibraryIcon, setPendingLibraryIcon] = useState<LibraryIcon | null>(null);
+  const [noteColor, setNoteColor] = useState<(typeof NOTE_COLORS)[number]>(NOTE_COLORS[0]);
   const extrasPanelRef = useRef<HTMLElement | null>(null);
   const moreToolsButtonRef = useRef<HTMLButtonElement | null>(null);
+  const iconsPanelRef = useRef<HTMLElement | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const broadcastRef = useRef<BroadcastChannel | null>(null);
   const clientIdRef = useRef(`client-${Math.random().toString(36).slice(2, 10)}`);
@@ -300,6 +481,32 @@ export default function Home() {
   const showStylePanel = STYLE_TOOLS.includes(activeTool);
   const resolvedTheme =
     themeMode === "system" ? (systemPrefersDark ? "dark" : "light") : themeMode;
+
+  const libraryIcons = useMemo(() => {
+    const merged = [...customIcons, ...BUILTIN_ICONS];
+    const byCategory =
+      iconCategory === "all" ? merged : merged.filter((icon) => icon.category === iconCategory);
+    return filterIcons(byCategory, iconSearch);
+  }, [customIcons, iconCategory, iconSearch]);
+
+  const iconsBySection = useMemo(() => {
+    if (iconCategory !== "all") {
+      return [{ id: iconCategory, icons: libraryIcons }] as const;
+    }
+    return ICON_CATEGORIES.map((category) => ({
+      id: category.id,
+      icons: libraryIcons.filter((icon) => icon.category === category.id),
+    })).filter((section) => section.icons.length > 0);
+  }, [iconCategory, libraryIcons]);
+
+  const catalogTemplates = useMemo(
+    () => filterTemplates(DIAGRAM_TEMPLATES, catalogCategory, catalogSearch),
+    [catalogCategory, catalogSearch],
+  );
+
+  useEffect(() => {
+    setCustomIcons(loadCustomIcons());
+  }, []);
 
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
@@ -654,12 +861,14 @@ export default function Home() {
         ) {
           return element.id;
         }
-      } else if (element.kind === "image") {
+      } else if (element.kind === "image" || element.kind === "note" || element.kind === "table") {
+        const height =
+          element.kind === "table" ? 44 + element.fields.length * 28 : element.height;
         if (
           point.x >= element.point.x &&
           point.x <= element.point.x + element.width &&
           point.y >= element.point.y &&
-          point.y <= element.point.y + element.height
+          point.y <= element.point.y + height
         ) {
           return element.id;
         }
@@ -733,6 +942,85 @@ export default function Home() {
       setStatusMessage("Failed to place image");
     } finally {
       event.target.value = "";
+    }
+  };
+
+  const placeLibraryIcon = (icon: LibraryIcon, point: Point) => {
+    setElements((previous) => [
+      ...previous,
+      {
+        id: makeId(),
+        kind: "image",
+        point: {
+          x: point.x - ICON_PLACE_SIZE / 2,
+          y: point.y - ICON_PLACE_SIZE / 2,
+        },
+        width: ICON_PLACE_SIZE,
+        height: ICON_PLACE_SIZE,
+        src: icon.src,
+      },
+    ]);
+    setStatusMessage(`Placed icon: ${icon.name}`);
+  };
+
+  const handleSelectLibraryIcon = (icon: LibraryIcon) => {
+    setPendingLibraryIcon(icon);
+    setActiveTool("select");
+    setShowExtras(false);
+    setStatusMessage(`Click the canvas to place "${icon.name}"`);
+  };
+
+  const handleUploadCustomIcon = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const src = typeof reader.result === "string" ? reader.result : "";
+      if (!src) {
+        setStatusMessage("Failed to read custom icon");
+        return;
+      }
+      const nextIcon: LibraryIcon = {
+        id: `custom-${makeId()}`,
+        name: file.name.replace(/\.[^.]+$/, "") || "Custom icon",
+        category: "custom",
+        keywords: ["custom", "upload"],
+        src,
+      };
+      setCustomIcons((previous) => {
+        const next = [nextIcon, ...previous];
+        saveCustomIcons(next);
+        return next;
+      });
+      setIconCategory("custom");
+      setStatusMessage(`Uploaded "${nextIcon.name}" — click it, then click the canvas`);
+    };
+    reader.readAsDataURL(file);
+    event.target.value = "";
+  };
+
+  const insertDiagramTemplate = (template: DiagramTemplate) => {
+    const origin = { x: 80 - pan.x, y: 100 - pan.y };
+    const built = template.build(origin) as CanvasElement[];
+    setElements((previous) => [...previous, ...built]);
+    setCanvasName((previous) =>
+      previous === "Untitled canvas" ? template.title : previous,
+    );
+    setShowCatalogPanel(false);
+    setShowExtras(false);
+    setShowIconsPanel(false);
+    setStatusMessage(`Inserted template: ${template.title}`);
+  };
+
+  const handleInsertStarter = (kind: "flowchart" | "architecture") => {
+    const template =
+      kind === "flowchart"
+        ? DIAGRAM_TEMPLATES.find((item) => item.id === "flow-basic")
+        : DIAGRAM_TEMPLATES.find((item) => item.id === "microservices");
+    if (template) {
+      insertDiagramTemplate(template);
     }
   };
 
@@ -874,6 +1162,41 @@ export default function Home() {
       } else if (element.kind === "image") {
         const image = await loadImage(element.src);
         context.drawImage(image, element.point.x, element.point.y, element.width, element.height);
+      } else if (element.kind === "note") {
+        context.fillStyle = element.color;
+        context.fillRect(element.point.x, element.point.y, element.width, element.height);
+        context.fillStyle = "#3a3a4c";
+        context.font = "15px Segoe UI";
+        const lines = element.value.split("\n");
+        lines.forEach((line, index) => {
+          context.fillText(line, element.point.x + 14, element.point.y + 34 + index * 18);
+        });
+      } else if (element.kind === "table") {
+        const rowHeight = 28;
+        const headerHeight = 40;
+        const height = headerHeight + element.fields.length * rowHeight;
+        context.fillStyle = "#ffffff";
+        context.strokeStyle = "#d8d8e8";
+        context.fillRect(element.point.x, element.point.y, element.width, height);
+        context.strokeRect(element.point.x, element.point.y, element.width, height);
+        context.fillStyle = element.headerColor;
+        context.fillRect(element.point.x, element.point.y, element.width, headerHeight);
+        context.fillStyle = "#ffffff";
+        context.font = "bold 14px Segoe UI";
+        context.fillText(element.title, element.point.x + 14, element.point.y + 26);
+        context.fillStyle = "#3a3a4c";
+        context.font = "13px Segoe UI";
+        element.fields.forEach((field, index) => {
+          const y = element.point.y + headerHeight + index * rowHeight + 18;
+          context.fillText(
+            `${field.pk ? "PK " : ""}${field.name}`,
+            element.point.x + 14,
+            y,
+          );
+          context.fillStyle = "#8f8fa3";
+          context.fillText(field.type, element.point.x + element.width - 70, y);
+          context.fillStyle = "#3a3a4c";
+        });
       } else if (element.kind === "web") {
         context.strokeStyle = "#5f6bff";
         context.strokeRect(element.point.x, element.point.y, element.width, element.height);
@@ -904,6 +1227,25 @@ export default function Home() {
     }
   };
 
+  const clearEntireCanvas = () => {
+    if (elements.length === 0) {
+      setStatusMessage("Canvas is already empty");
+      return;
+    }
+    const confirmed = window.confirm(
+      `Clear the entire canvas?\n\nThis will remove all ${elements.length} element${elements.length === 1 ? "" : "s"}.`,
+    );
+    if (!confirmed) {
+      setStatusMessage("Clear cancelled");
+      return;
+    }
+    setElements([]);
+    setDraftElement(null);
+    setPendingImagePoint(null);
+    setPendingLibraryIcon(null);
+    setStatusMessage("Entire canvas cleared");
+  };
+
   const handlePointerDown = (event: React.PointerEvent<SVGSVGElement>) => {
     if (activeTool === "hand") {
       setHandStart(toScreenPoint(event));
@@ -912,6 +1254,12 @@ export default function Home() {
     }
 
     const point = getCanvasPoint(event);
+
+    if (pendingLibraryIcon) {
+      placeLibraryIcon(pendingLibraryIcon, point);
+      setPendingLibraryIcon(null);
+      return;
+    }
 
     if (activeTool === "eraser") {
       const hitId = findElementAtPoint(point);
@@ -943,43 +1291,32 @@ export default function Home() {
       return;
     }
 
-    if (activeTool === "image") {
-      setPendingImagePoint(point);
-      const input = document.getElementById("canvas-open-image-input") as HTMLInputElement | null;
-      input?.click();
-      return;
-    }
-
-    if (activeTool === "webEmbed") {
-      const url = window.prompt("Paste website URL");
-      if (!url?.trim()) {
-        setStatusMessage("Web embed cancelled");
+    if (activeTool === "note") {
+      const value = window.prompt("Sticky note text", "Note");
+      if (value === null) {
+        setStatusMessage("Sticky note cancelled");
         return;
       }
       setElements((previous) => [
         ...previous,
         {
           id: makeId(),
-          kind: "web",
+          kind: "note",
           point,
-          width: 260,
-          height: 90,
-          url: url.trim(),
+          width: 168,
+          height: 120,
+          value: value.trim() || "Note",
+          color: noteColor,
         },
       ]);
-      setStatusMessage("Web embed created");
+      setStatusMessage("Sticky note added");
       return;
     }
 
-    if (activeTool === "lasso") {
-      setLassoDraft([point]);
-      event.currentTarget.setPointerCapture(event.pointerId);
-      return;
-    }
-
-    if (activeTool === "laser") {
-      setLaserDraft([point]);
-      event.currentTarget.setPointerCapture(event.pointerId);
+    if (activeTool === "image") {
+      setPendingImagePoint(point);
+      const input = document.getElementById("canvas-open-image-input") as HTMLInputElement | null;
+      input?.click();
       return;
     }
 
@@ -1024,18 +1361,6 @@ export default function Home() {
       return;
     }
 
-    if (activeTool === "lasso" && lassoDraft.length > 0) {
-      const point = getCanvasPoint(event);
-      setLassoDraft((previous) => [...previous, point]);
-      return;
-    }
-
-    if (activeTool === "laser" && laserDraft.length > 0) {
-      const point = getCanvasPoint(event);
-      setLaserDraft((previous) => [...previous, point]);
-      return;
-    }
-
     if (!draftElement) {
       return;
     }
@@ -1054,22 +1379,6 @@ export default function Home() {
   const handlePointerUp = (event: React.PointerEvent<SVGSVGElement>) => {
     if (activeTool === "hand") {
       setHandStart(null);
-      event.currentTarget.releasePointerCapture(event.pointerId);
-      return;
-    }
-
-    if (activeTool === "lasso") {
-      if (lassoDraft.length > 2) {
-        setStatusMessage(`Lasso captured ${lassoDraft.length} points`);
-      }
-      setLassoDraft([]);
-      event.currentTarget.releasePointerCapture(event.pointerId);
-      return;
-    }
-
-    if (activeTool === "laser") {
-      setStatusMessage("Laser pointer used");
-      setTimeout(() => setLaserDraft([]), 260);
       event.currentTarget.releasePointerCapture(event.pointerId);
       return;
     }
@@ -1180,6 +1489,10 @@ export default function Home() {
             width={width}
             height={height}
             className={styles.frameStroke}
+            style={{
+              stroke: element.color ?? "#5861ea",
+              opacity: (element.opacity ?? DEFAULT_OPACITY) / 100,
+            }}
           />
         );
       }
@@ -1265,6 +1578,130 @@ export default function Home() {
       );
     }
 
+    if (element.kind === "note") {
+      const lines = element.value.split("\n");
+      return (
+        <g key={element.id}>
+          <rect
+            x={element.point.x}
+            y={element.point.y}
+            width={element.width}
+            height={element.height}
+            rx={8}
+            ry={8}
+            className={styles.stickyNote}
+            style={{ fill: element.color }}
+          />
+          <rect
+            x={element.point.x}
+            y={element.point.y}
+            width={element.width}
+            height={8}
+            rx={8}
+            ry={8}
+            className={styles.stickyNoteFold}
+            style={{ fill: element.color, filter: "brightness(0.92)" }}
+          />
+          <text
+            x={element.point.x + 14}
+            y={element.point.y + 34}
+            className={styles.stickyNoteText}
+          >
+            {lines.map((line, index) => (
+              <tspan
+                key={`${element.id}-note-${index}`}
+                x={element.point.x + 14}
+                dy={index === 0 ? 0 : 18}
+              >
+                {line}
+              </tspan>
+            ))}
+          </text>
+        </g>
+      );
+    }
+
+    if (element.kind === "table") {
+      const rowHeight = 28;
+      const headerHeight = 40;
+      const height = headerHeight + element.fields.length * rowHeight;
+      return (
+        <g key={element.id}>
+          <rect
+            x={element.point.x}
+            y={element.point.y}
+            width={element.width}
+            height={height}
+            rx={10}
+            ry={10}
+            className={styles.erdTable}
+          />
+          <rect
+            x={element.point.x}
+            y={element.point.y}
+            width={element.width}
+            height={headerHeight}
+            rx={10}
+            ry={10}
+            style={{ fill: element.headerColor }}
+          />
+          <rect
+            x={element.point.x}
+            y={element.point.y + 20}
+            width={element.width}
+            height={20}
+            style={{ fill: element.headerColor }}
+          />
+          {element.iconSrc ? (
+            <image
+              href={element.iconSrc}
+              x={element.point.x + 10}
+              y={element.point.y + 8}
+              width={24}
+              height={24}
+              preserveAspectRatio="xMidYMid meet"
+            />
+          ) : null}
+          <text
+            x={element.point.x + (element.iconSrc ? 42 : 14)}
+            y={element.point.y + 26}
+            className={styles.erdTableTitle}
+          >
+            {element.title}
+          </text>
+          {element.fields.map((field, index) => {
+            const y = element.point.y + headerHeight + index * rowHeight;
+            return (
+              <g key={`${element.id}-field-${field.name}`}>
+                {index > 0 ? (
+                  <line
+                    x1={element.point.x + 8}
+                    y1={y}
+                    x2={element.point.x + element.width - 8}
+                    y2={y}
+                    className={styles.erdRowDivider}
+                  />
+                ) : null}
+                <text x={element.point.x + 14} y={y + 19} className={styles.erdFieldName}>
+                  {field.pk ? "🔑 " : ""}
+                  {field.name}
+                </text>
+                <text
+                  x={element.point.x + element.width - 14}
+                  y={y + 19}
+                  textAnchor="end"
+                  className={styles.erdFieldType}
+                >
+                  {field.type}
+                  {field.pk ? " pk" : ""}
+                </text>
+              </g>
+            );
+          })}
+        </g>
+      );
+    }
+
     return (
       <image
         key={element.id}
@@ -1341,13 +1778,9 @@ export default function Home() {
           <button
             type="button"
             className={styles.menuItem}
-            onClick={() => {
-              setElements([]);
-              setDraftElement(null);
-              handleMockAction("Canvas reset");
-            }}
+            onClick={clearEntireCanvas}
           >
-            <span>Reset the canvas</span>
+            <span>Clear entire canvas</span>
           </button>
 
           <div className={styles.separator} />
@@ -1443,6 +1876,32 @@ export default function Home() {
         <div className={styles.toolbarDivider} />
         <button
           type="button"
+          className={`${styles.toolButton} ${showCatalogPanel ? styles.toolButtonActive : ""}`}
+          title="Diagram catalog"
+          onClick={() => {
+            setShowCatalogPanel((previous) => !previous);
+            setShowIconsPanel(false);
+            setShowExtras(false);
+            setMenuOpen(false);
+          }}
+        >
+          {menuGlyph("catalog")}
+        </button>
+        <button
+          type="button"
+          className={`${styles.toolButton} ${showIconsPanel ? styles.toolButtonActive : ""}`}
+          title="Icon library"
+          onClick={() => {
+            setShowIconsPanel((previous) => !previous);
+            setShowCatalogPanel(false);
+            setShowExtras(false);
+            setMenuOpen(false);
+          }}
+        >
+          {menuGlyph("icons")}
+        </button>
+        <button
+          type="button"
           ref={moreToolsButtonRef}
           className={`${styles.toolButton} ${showExtras ? styles.toolButtonActive : ""}`}
           title="More tools"
@@ -1453,11 +1912,16 @@ export default function Home() {
         <button
           type="button"
           className={`${styles.toolButton} ${activeTool === "eraser" ? styles.toolButtonActive : ""}`}
-          title="Eraser"
+          title="Eraser — click objects, or open Clear all"
           onClick={() => {
+            if (activeTool === "eraser") {
+              clearEntireCanvas();
+              return;
+            }
             setActiveTool("eraser");
             setShowExtras(false);
-            setStatusMessage("Eraser tool selected");
+            setPendingLibraryIcon(null);
+            setStatusMessage("Eraser ready — click objects, or click Eraser again to clear all");
           }}
         >
           {toolIcon("eraser")}
@@ -1467,61 +1931,321 @@ export default function Home() {
 
       {showExtras && (
         <section ref={extrasPanelRef} className={styles.extrasPanel}>
-          {EXTRA_TOOLS.map((tool) => (
+          <div className={styles.extrasHeader}>
+            <h3>More tools</h3>
+            <p>Frames, notes, libraries &amp; AI</p>
+          </div>
+
+          <div className={styles.extrasSection}>
+            {EXTRA_TOOLS.map((tool) => (
+              <button
+                key={tool.id}
+                type="button"
+                className={styles.extrasItem}
+                onClick={() => {
+                  setActiveTool(tool.id);
+                  setShowExtras(false);
+                  setPendingLibraryIcon(null);
+                  setStatusMessage(`${tool.label} selected`);
+                }}
+              >
+                <span className={styles.extrasIconWrap}>{toolIcon(tool.id)}</span>
+                <span className={styles.extrasItemText}>
+                  <strong>{tool.label}</strong>
+                </span>
+                <span className={styles.shortcut}>{tool.shortcut}</span>
+              </button>
+            ))}
+          </div>
+
+          <p className={styles.extrasHeading}>Library</p>
+          <div className={styles.extrasSection}>
             <button
-              key={tool.id}
               type="button"
               className={styles.extrasItem}
               onClick={() => {
-                setActiveTool(tool.id);
+                setShowCatalogPanel(true);
+                setShowIconsPanel(false);
                 setShowExtras(false);
-                setStatusMessage(`${tool.label} selected`);
               }}
             >
-              <span className={styles.extrasIcon}>{tool.icon}</span>
-              <span>{tool.label}</span>
-              <span className={styles.shortcut}>{tool.shortcut}</span>
+              <span className={`${styles.extrasIconWrap} ${styles.extrasIconCatalog}`}>
+                {menuGlyph("catalog")}
+              </span>
+              <span className={styles.extrasItemText}>
+                <strong>Diagram catalog</strong>
+                <small>Flow, ERD, cloud &amp; more</small>
+              </span>
             </button>
-          ))}
-          <p className={styles.extrasHeading}>Generate</p>
-          <button
-            type="button"
-            className={styles.extrasItem}
-            onClick={() => {
-              openGenerateModal("text");
-              setShowExtras(false);
-            }}
-          >
-            <span className={styles.extrasIcon}>✾</span>
-            <span>Text to diagram</span>
-            <span className={styles.aiBadge}>AI</span>
-          </button>
-          <button
-            type="button"
-            className={styles.extrasItem}
-            onClick={() => {
-              openGenerateModal("mermaid");
-              setShowExtras(false);
-            }}
-          >
-            <span className={styles.extrasIcon}>🦋</span>
-            <span>Mermaid to Excalidraw</span>
-            <span className={styles.shortcut} />
-          </button>
-          <button
-            type="button"
-            className={styles.extrasItem}
-            onClick={() => {
-              setActiveTool("frame");
-              setShowExtras(false);
-              setStatusMessage("Wireframe mode uses Frame tool");
-            }}
-          >
-            <span className={styles.extrasIcon}>✎</span>
-            <span>Wireframe to code</span>
-            <span className={styles.aiBadge}>AI</span>
-          </button>
+            <button
+              type="button"
+              className={styles.extrasItem}
+              onClick={() => {
+                setShowIconsPanel(true);
+                setShowCatalogPanel(false);
+                setShowExtras(false);
+              }}
+            >
+              <span className={`${styles.extrasIconWrap} ${styles.extrasIconLibrary}`}>
+                {menuGlyph("icons")}
+              </span>
+              <span className={styles.extrasItemText}>
+                <strong>Icon library</strong>
+                <small>Tech, cloud &amp; custom icons</small>
+              </span>
+            </button>
+            <button
+              type="button"
+              className={styles.extrasItem}
+              onClick={() => handleInsertStarter("flowchart")}
+            >
+              <span className={`${styles.extrasIconWrap} ${styles.extrasIconFlow}`}>
+                {menuGlyph("flow")}
+              </span>
+              <span className={styles.extrasItemText}>
+                <strong>Flowchart starter</strong>
+                <small>Quick decision flow</small>
+              </span>
+            </button>
+            <button
+              type="button"
+              className={styles.extrasItem}
+              onClick={() => handleInsertStarter("architecture")}
+            >
+              <span className={`${styles.extrasIconWrap} ${styles.extrasIconArch}`}>
+                {menuGlyph("arch")}
+              </span>
+              <span className={styles.extrasItemText}>
+                <strong>Architecture starter</strong>
+                <small>Services &amp; data layout</small>
+              </span>
+            </button>
+          </div>
+
+          <p className={styles.extrasHeading}>Generate with AI</p>
+          <div className={styles.aiCards}>
+            <button
+              type="button"
+              className={styles.aiCard}
+              onClick={() => {
+                openGenerateModal("text");
+                setShowExtras(false);
+              }}
+            >
+              <span className={styles.aiCardIcon}>{menuGlyph("ai")}</span>
+              <span className={styles.aiCardBody}>
+                <strong>
+                  Text to diagram <span className={styles.aiBadge}>AI</span>
+                </strong>
+                <small>Describe a flow and generate Mermaid on the canvas</small>
+              </span>
+            </button>
+            <button
+              type="button"
+              className={styles.aiCard}
+              onClick={() => {
+                openGenerateModal("mermaid");
+                setShowExtras(false);
+              }}
+            >
+              <span className={`${styles.aiCardIcon} ${styles.aiCardIconAlt}`}>
+                {menuGlyph("mermaid")}
+              </span>
+              <span className={styles.aiCardBody}>
+                <strong>Mermaid to diagram</strong>
+                <small>Paste Mermaid code and render it as an image</small>
+              </span>
+            </button>
+          </div>
         </section>
+      )}
+
+      {showCatalogPanel && (
+        <aside className={styles.catalogPanel} aria-label="Diagram catalog">
+          <div className={styles.iconsPanelHeader}>
+            <div>
+              <h3 className={styles.iconsPanelTitle}>Diagram Catalog</h3>
+              <p className={styles.iconsPanelHint}>Insert ready-made diagrams onto the canvas</p>
+            </div>
+            <button
+              type="button"
+              className={styles.iconsClose}
+              onClick={() => setShowCatalogPanel(false)}
+              aria-label="Close catalog"
+            >
+              ×
+            </button>
+          </div>
+
+          <input
+            type="search"
+            className={styles.iconsSearch}
+            placeholder="Insert item…"
+            value={catalogSearch}
+            onChange={(event) => setCatalogSearch(event.target.value)}
+          />
+
+          <div className={styles.iconsCategoryRow}>
+            {DIAGRAM_CATEGORIES.map((category) => (
+              <button
+                key={category.id}
+                type="button"
+                className={`${styles.iconsCategoryChip} ${
+                  catalogCategory === category.id ? styles.iconsCategoryChipActive : ""
+                }`}
+                onClick={() => setCatalogCategory(category.id)}
+              >
+                {category.label}
+              </button>
+            ))}
+          </div>
+
+          <div className={styles.catalogList}>
+            {catalogTemplates.length === 0 ? (
+              <p className={styles.iconsEmpty}>No templates match your search.</p>
+            ) : (
+              catalogTemplates.map((template) => (
+                <button
+                  key={template.id}
+                  type="button"
+                  className={styles.catalogCard}
+                  onClick={() => insertDiagramTemplate(template)}
+                >
+                  <span
+                    className={styles.catalogThumb}
+                    style={{ background: `${template.previewAccent}22`, color: template.previewAccent }}
+                  >
+                    {template.badge}
+                  </span>
+                  <span className={styles.catalogMeta}>
+                    <strong>{template.title}</strong>
+                    <small>{template.description}</small>
+                  </span>
+                  <span className={styles.catalogInsert}>Insert</span>
+                </button>
+              ))
+            )}
+          </div>
+        </aside>
+      )}
+
+      {showIconsPanel && (
+        <aside
+          ref={iconsPanelRef}
+          className={styles.iconsPanel}
+          style={{
+            left:
+              showCatalogPanel
+                ? 330
+                : showStylePanel || activeTool === "note"
+                  ? 190
+                  : 14,
+          }}
+          aria-label="Icon library"
+        >
+          <div className={styles.iconsPanelHeader}>
+            <div>
+              <h3 className={styles.iconsPanelTitle}>Icons</h3>
+              <p className={styles.iconsPanelHint}>
+                {pendingLibraryIcon
+                  ? `Place "${pendingLibraryIcon.name}" — click canvas`
+                  : "Pick an icon, then click the canvas"}
+              </p>
+            </div>
+            <button
+              type="button"
+              className={styles.iconsClose}
+              onClick={() => {
+                setShowIconsPanel(false);
+                setPendingLibraryIcon(null);
+              }}
+              aria-label="Close icons panel"
+            >
+              ×
+            </button>
+          </div>
+
+          <input
+            type="search"
+            className={styles.iconsSearch}
+            placeholder="Search icons…"
+            value={iconSearch}
+            onChange={(event) => setIconSearch(event.target.value)}
+          />
+
+          <div className={styles.iconsCategoryRow}>
+            <button
+              type="button"
+              className={`${styles.iconsCategoryChip} ${
+                iconCategory === "all" ? styles.iconsCategoryChipActive : ""
+              }`}
+              onClick={() => setIconCategory("all")}
+            >
+              All
+            </button>
+            {ICON_CATEGORIES.map((category) => (
+              <button
+                key={category.id}
+                type="button"
+                className={`${styles.iconsCategoryChip} ${
+                  iconCategory === category.id ? styles.iconsCategoryChipActive : ""
+                }`}
+                onClick={() => setIconCategory(category.id)}
+              >
+                {category.label}
+              </button>
+            ))}
+          </div>
+
+          <label className={styles.iconsUpload}>
+            <input
+              type="file"
+              accept="image/*,.svg"
+              className={styles.hiddenInput}
+              onChange={handleUploadCustomIcon}
+            />
+            <span className={styles.iconsUploadIcon}>↑</span>
+            <span>
+              <strong>Custom Icons</strong>
+              <small>Upload SVG or PNG for your board</small>
+            </span>
+          </label>
+
+          <div className={styles.iconsScroll}>
+            {iconsBySection.length === 0 ? (
+              <p className={styles.iconsEmpty}>No icons match your search.</p>
+            ) : (
+              iconsBySection.map((section) => {
+                const meta = ICON_CATEGORIES.find((item) => item.id === section.id);
+                return (
+                  <div key={section.id} className={styles.iconsSection}>
+                    <div className={styles.iconsSectionHead}>
+                      <span>{meta?.label ?? section.id}</span>
+                      <span className={styles.iconsCount}>{section.icons.length}</span>
+                    </div>
+                    <div className={styles.iconsGrid}>
+                      {section.icons.map((icon) => (
+                        <button
+                          key={icon.id}
+                          type="button"
+                          className={`${styles.iconTile} ${
+                            pendingLibraryIcon?.id === icon.id ? styles.iconTileActive : ""
+                          }`}
+                          title={icon.name}
+                          onClick={() => handleSelectLibraryIcon(icon)}
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={icon.src} alt="" className={styles.iconTileImg} />
+                          <span className={styles.iconTileLabel}>{icon.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </aside>
       )}
 
       {showGenerateModal && (
@@ -1599,14 +2323,32 @@ export default function Home() {
         </section>
       )}
 
-      <button type="button" className={styles.shareButton}>
-        Excalidraw+
+      <button
+        type="button"
+        className={styles.collabButton}
+        aria-label="Share collaboration link"
+        onClick={handleLiveCollaboration}
+      >
+        <svg viewBox="0 0 24 24" className={styles.topRightSvg} aria-hidden>
+          <circle cx="18" cy="5" r="2.4" />
+          <circle cx="6" cy="12" r="2.4" />
+          <circle cx="18" cy="19" r="2.4" />
+          <path d="M8.2 11 15.7 6.4M8.2 13 15.7 17.6" />
+        </svg>
       </button>
-      <button type="button" className={styles.collabButton} aria-label="Share">
-        ⤴
-      </button>
-      <button type="button" className={styles.layoutButton} aria-label="Layout options">
-        ◫
+      <button
+        type="button"
+        className={styles.layoutButton}
+        aria-label="Reset pan to center"
+        onClick={() => {
+          setPan({ x: 0, y: 0 });
+          setStatusMessage("View centered");
+        }}
+      >
+        <svg viewBox="0 0 24 24" className={styles.topRightSvg} aria-hidden>
+          <rect x="4" y="4" width="16" height="16" rx="2" />
+          <path d="M12 8v8M8 12h8" />
+        </svg>
       </button>
 
       <main className={styles.canvasArea}>
@@ -1683,11 +2425,57 @@ export default function Home() {
             </div>
           </aside>
         )}
+
+        {activeTool === "note" && (
+          <aside className={styles.propertiesPanel}>
+            <div className={styles.propertyGroup}>
+              <p className={styles.propertyLabel}>Note color</p>
+              <div className={styles.colorRow}>
+                {NOTE_COLORS.map((color) => (
+                  <button
+                    key={color}
+                    type="button"
+                    className={`${styles.colorSwatch} ${
+                      noteColor === color ? styles.swatchActive : ""
+                    }`}
+                    style={{ background: color }}
+                    onClick={() => setNoteColor(color)}
+                    aria-label={`Note color ${color}`}
+                  />
+                ))}
+              </div>
+            </div>
+            <p className={styles.propertyLabel}>Click the canvas to place a sticky note.</p>
+          </aside>
+        )}
+
+        {activeTool === "eraser" && (
+          <aside className={styles.propertiesPanel} aria-label="Eraser options">
+            <p className={styles.propertyLabel}>Eraser modes</p>
+            <p className={styles.eraserHint}>
+              Click any object on the canvas to erase it one by one.
+            </p>
+            <button
+              type="button"
+              className={styles.clearCanvasButton}
+              onClick={clearEntireCanvas}
+              disabled={elements.length === 0}
+            >
+              Clear entire canvas
+            </button>
+            <p className={styles.eraserHintMuted}>
+              Tip: click the Eraser tool again to clear all.
+            </p>
+          </aside>
+        )}
+
         <svg
           className={`${styles.drawingSurface} ${
-            activeTool === "eraser"
+            pendingLibraryIcon
+              ? styles.imageCursor
+              : activeTool === "eraser"
               ? styles.eraserCursor
-              : activeTool === "text"
+              : activeTool === "text" || activeTool === "note"
                 ? styles.textCursor
                 : activeTool === "image"
                   ? styles.imageCursor
@@ -1715,18 +2503,6 @@ export default function Home() {
           <g transform={`translate(${pan.x} ${pan.y})`}>
             {elements.map(renderElement)}
             {draftElement && renderElement({ ...draftElement, id: "draft-element" })}
-            {lassoDraft.length > 1 ? (
-              <polyline
-                points={lassoDraft.map((point) => `${point.x},${point.y}`).join(" ")}
-                className={styles.lassoStroke}
-              />
-            ) : null}
-            {laserDraft.length > 1 ? (
-              <polyline
-                points={laserDraft.map((point) => `${point.x},${point.y}`).join(" ")}
-                className={styles.laserStroke}
-              />
-            ) : null}
           </g>
         </svg>
         <input
@@ -1752,15 +2528,8 @@ export default function Home() {
         </p>
       </main>
 
-      <button type="button" className={styles.centerAction}>
-        Scroll back to content
-      </button>
-
       <div className={styles.bottomRightActions}>
-        <button type="button" className={styles.iconButton} aria-label="Verified">
-          ✓
-        </button>
-        <button type="button" className={styles.iconButton} aria-label="Help">
+        <button type="button" className={styles.iconButton} aria-label="Help" title="Tips">
           ?
         </button>
       </div>
