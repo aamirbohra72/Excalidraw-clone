@@ -371,7 +371,9 @@
   right: 0;
   top: 30px;
   z-index: 5;
-  width: 150px;
+  width: 180px;
+  max-height: 280px;
+  overflow: auto;
   background: #fff;
   border: 1px solid #e5e7eb;
   border-radius: 10px;
@@ -393,6 +395,24 @@
 
 .menuPop button:hover {
   background: #f3f4f6;
+}
+
+.menuMoveGroup {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid #f3f4f6;
+  border-bottom: 1px solid #f3f4f6;
+  margin: 4px 0;
+  padding: 4px 0;
+}
+
+.menuMoveLabel {
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .danger {
@@ -448,6 +468,37 @@
 .secondaryButton {
   background: #eef2ff;
   color: #3730a3;
+}
+
+.folderCreateRow {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.folderCreateRow input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 10px 12px;
+  outline: none;
+  font-size: 14px;
+  color: #111827;
+  background: #ffffff;
+  color-scheme: light;
+}
+
+.folderCreateRow input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.folderError {
+  margin: -4px 0 10px;
+  font-size: 13px;
+  color: #dc2626;
 }
 
 .folderRow {
@@ -655,5 +706,445 @@
   .search {
     margin-left: 0;
     min-width: 0;
+  }
+}
+
+/* -- Settings modal (Eraser-style) -- */
+
+.settingsOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(15, 23, 42, 0.45);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.settingsModal {
+  width: min(980px, 100%);
+  height: min(720px, calc(100svh - 48px));
+  background: #ffffff;
+  border-radius: 16px;
+  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.28);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.settingsHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 22px;
+  border-bottom: 1px solid #eceff3;
+}
+
+.settingsHeader h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.settingsClose {
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  border-radius: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+  color: #374151;
+  font-size: 13px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settingsClose span {
+  color: #9ca3af;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.settingsBody {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 220px 1fr;
+}
+
+.settingsNav {
+  border-right: 1px solid #eceff3;
+  padding: 14px 10px;
+  overflow: auto;
+  background: #fafbfc;
+}
+
+.settingsNavGroup {
+  margin: 12px 10px 6px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #9ca3af;
+  font-weight: 700;
+}
+
+.settingsNavItem {
+  width: 100%;
+  border: none;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  color: #374151;
+  font-size: 14px;
+  text-align: left;
+}
+
+.settingsNavItem:hover {
+  background: #f3f4f6;
+}
+
+.settingsNavItemActive {
+  background: #3b82f6;
+  color: #ffffff;
+  font-weight: 650;
+}
+
+.settingsNavItemActive:hover {
+  background: #2563eb;
+}
+
+.settingsContent {
+  padding: 20px 24px 28px;
+  overflow: auto;
+}
+
+.settingsLead {
+  margin: 0 0 16px;
+  color: #4b5563;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.settingsPanelTitle {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.settingsField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #4b5563;
+}
+
+.settingsField input,
+.settingsInlineRow input {
+  width: 100%;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 10px 12px;
+  outline: none;
+  font-size: 14px;
+  font-weight: 400;
+  color: #111827;
+}
+
+.settingsInlineRow {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.settingsInlineRow input {
+  flex: 1;
+}
+
+.mcpClientGrid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.mcpClientCard {
+  position: relative;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  border-radius: 12px;
+  padding: 14px 10px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  min-height: 92px;
+}
+
+.mcpClientCard:hover {
+  border-color: #cbd5e1;
+}
+
+.mcpClientCardActive {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 1px #3b82f6;
+}
+
+.mcpClientCheck {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #3b82f6;
+  color: #fff;
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mcpClientLogo {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: #f3f4f6;
+  color: #111827;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.mcpClientCard strong {
+  font-size: 12px;
+  color: #111827;
+  text-align: center;
+}
+
+.mcpSetupPanel {
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 16px;
+  background: #fcfcfd;
+}
+
+.mcpSetupHead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.mcpSetupHead h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.mcpSetupHead p {
+  margin: 2px 0 0;
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.mcpRunLabel {
+  margin: 10px 0 6px;
+  font-size: 12px;
+  color: #6b7280;
+  font-weight: 600;
+}
+
+.mcpCodeBox {
+  position: relative;
+  background: #1f2937;
+  color: #e5e7eb;
+  border-radius: 12px;
+  padding: 14px 88px 14px 14px;
+  margin-bottom: 12px;
+}
+
+.mcpCodeBox pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  line-height: 1.5;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.mcpCopyButton {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  border: none;
+  border-radius: 8px;
+  background: #374151;
+  color: #fff;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.mcpCopyButton:hover {
+  background: #4b5563;
+}
+
+.settingsMemberCard {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  margin-bottom: 10px;
+}
+
+.settingsAvatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+}
+
+.planGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.planCard {
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 16px;
+  background: #fff;
+}
+
+.planCardActive {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 1px #3b82f6;
+}
+
+.planCard h4 {
+  margin: 0 0 6px;
+}
+
+.planPrice {
+  margin: 0 0 10px;
+  font-size: 24px;
+  font-weight: 750;
+  color: #111827;
+}
+
+.planCard ul {
+  margin: 0 0 14px;
+  padding-left: 18px;
+  color: #4b5563;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.settingsIconGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.settingsIconCard {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  text-align: center;
+}
+
+.settingsIconCard img {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+}
+
+.settingsIconCard strong {
+  font-size: 12px;
+}
+
+.settingsTokenList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settingsTokenRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.appearanceRow {
+  display: flex;
+  gap: 8px;
+}
+
+.appearanceChip {
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  border-radius: 999px;
+  padding: 8px 14px;
+  cursor: pointer;
+  font-weight: 600;
+  color: #374151;
+}
+
+.appearanceChipActive {
+  background: #3b82f6;
+  border-color: #3b82f6;
+  color: #fff;
+}
+
+@media (max-width: 900px) {
+  .settingsBody {
+    grid-template-columns: 1fr;
+  }
+
+  .settingsNav {
+    border-right: none;
+    border-bottom: 1px solid #eceff3;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .settingsNavGroup {
+    width: 100%;
+  }
+
+  .mcpClientGrid,
+  .planGrid {
+    grid-template-columns: 1fr 1fr;
   }
 }

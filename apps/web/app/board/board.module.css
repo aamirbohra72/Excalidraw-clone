@@ -14,6 +14,10 @@
 
 .pageDark .menuPanel,
 .pageDark .topToolbar,
+.pageDark .topNav,
+.pageDark .sidebarRail,
+.pageDark .sidebarStepPanel,
+.pageDark .documentPane,
 .pageDark .extrasPanel,
 .pageDark .propertiesPanel,
 .pageDark .iconsPanel,
@@ -51,22 +55,33 @@
 .canvasArea {
   position: absolute;
   inset: 0;
+  top: 56px;
+  left: 56px;
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
   align-items: center;
-  padding-top: 66px;
+  padding-top: 12px;
   background-image:
     linear-gradient(#ececf2 1px, transparent 1px),
     linear-gradient(90deg, #ececf2 1px, transparent 1px);
   background-size: 28px 28px;
 }
 
+.canvasAreaSplit {
+  left: calc(56px + min(42vw, 480px));
+}
+
+.canvasAreaHidden {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .propertiesPanel {
   position: absolute;
   z-index: 26;
-  top: 84px;
-  left: 14px;
+  top: 68px;
+  left: 68px;
   width: 188px;
   border: 1px solid #e2e2ed;
   border-radius: 14px;
@@ -269,13 +284,7 @@
 }
 
 .sideControl {
-  position: absolute;
-  z-index: 30;
-  top: 48px;
-  left: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  display: none;
 }
 
 .missingBoard {
@@ -300,9 +309,9 @@
 
 .menuPanel {
   position: absolute;
-  z-index: 28;
-  top: 76px;
-  left: 14px;
+  z-index: 34;
+  top: 68px;
+  left: 68px;
   width: 268px;
   max-height: calc(100svh - 100px);
   overflow: auto;
@@ -471,6 +480,28 @@
 
 .canvasAreaNoGrid {
   background-image: none !important;
+}
+
+.inlineTextEditor {
+  position: absolute;
+  z-index: 24;
+  margin: 0;
+  border: 1.5px solid #6858f8;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 16px;
+  line-height: 1.35;
+  color: #2f2f3d;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  outline: none;
+  resize: both;
+  box-shadow: 0 8px 24px rgba(40, 40, 60, 0.14);
+  box-sizing: border-box;
+}
+
+.inlineNoteEditor {
+  font-weight: 600;
+  border-radius: 10px;
 }
 
 .overlayPanel {
@@ -670,19 +701,7 @@
 }
 
 .topToolbar {
-  position: absolute;
-  z-index: 25;
-  top: 16px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: #ffffff;
-  border: 1px solid #e7e7f2;
-  border-radius: 16px;
-  box-shadow: 0 5px 20px rgba(35, 35, 50, 0.06);
-  display: flex;
-  align-items: center;
-  padding: 4px;
-  gap: 4px;
+  display: none;
 }
 
 .toolButton,
@@ -754,8 +773,8 @@
 .extrasPanel {
   position: absolute;
   z-index: 28;
-  top: 84px;
-  right: 26px;
+  top: 68px;
+  left: 68px;
   width: 320px;
   border: 1px solid #e2e2ed;
   border-radius: 18px;
@@ -977,8 +996,9 @@
 .iconsPanel {
   position: absolute;
   z-index: 29;
-  top: 84px;
-  left: 14px;
+  top: 68px;
+  right: 16px;
+  left: auto;
   width: 292px;
   max-height: calc(100svh - 120px);
   display: flex;
@@ -1204,8 +1224,9 @@
 .catalogPanel {
   position: absolute;
   z-index: 29;
-  top: 84px;
-  left: 14px;
+  top: 68px;
+  right: 16px;
+  left: auto;
   width: 304px;
   max-height: calc(100svh - 120px);
   display: flex;
@@ -1470,47 +1491,7 @@
 
 .collabButton,
 .layoutButton {
-  position: absolute;
-  border: 1px solid #e4e4ef;
-  background: #ffffff;
-  color: #414152;
-  border-radius: 10px;
-  height: 36px;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.collabButton {
-  z-index: 20;
-  top: 16px;
-  right: 72px;
-  width: 36px;
-  padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: #6f5cff;
-  color: #ffffff;
-  border-color: #6f5cff;
-}
-
-.collabButton:hover {
-  background: #5d4cf0;
-}
-
-.layoutButton {
-  z-index: 20;
-  top: 16px;
-  right: 26px;
-  width: 36px;
-  padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.layoutButton:hover {
-  background: #f2f2fa;
+  display: none;
 }
 
 .centerAction {
@@ -1523,32 +1504,829 @@
   bottom: 12px;
   display: flex;
   gap: 8px;
+  z-index: 20;
+}
+
+/* ── Eraser-style top nav + multi-step sidebar ── */
+
+.topNav {
+  position: absolute;
+  z-index: 40;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px 0 64px;
+  background: rgba(255, 255, 255, 0.94);
+  border-bottom: 1px solid #e7e7f0;
+  backdrop-filter: blur(10px);
+}
+
+.topNavBrand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  max-width: 28%;
+  z-index: 1;
+}
+
+.topNavLogo {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: linear-gradient(145deg, #6f5cff, #4d41d8);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: none;
+  cursor: pointer;
+}
+
+.topNavLogoSvg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.topNavTitle {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+  color: #2f2f3d;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.viewModeToggle {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  background: #efeff6;
+  border: 1px solid #e2e2ed;
+}
+
+.viewModeButton {
+  border: none;
+  background: transparent;
+  color: #5a5a6e;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 7px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.viewModeButton:hover {
+  color: #2f2f3d;
+}
+
+.viewModeButtonActive {
+  background: #ffffff;
+  color: #2f2f3d;
+  box-shadow: 0 1px 3px rgba(40, 40, 60, 0.12);
+}
+
+.topNavSpacer {
+  width: 28%;
+  min-width: 0;
+}
+
+.sidebarRail {
+  position: absolute;
+  z-index: 36;
+  top: 56px;
+  left: 0;
+  bottom: 0;
+  width: 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 0 14px;
+  background: #ffffff;
+  border-right: 1px solid #e7e7f0;
+}
+
+.sidebarRailGroup {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+}
+
+.sidebarRailSpacer {
+  flex: 1;
+  min-height: 8px;
+}
+
+.sidebarRailBtn {
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 11px;
+  background: transparent;
+  color: #4a4a5c;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.sidebarRailBtn:hover {
+  background: #f2f2fa;
+  color: #2f2f3d;
+}
+
+.sidebarRailBtnActive {
+  background: #e8e7ff;
+  color: #4d41d8;
+}
+
+.sidebarRailBtnAccent {
+  background: #6f5cff;
+  color: #ffffff;
+}
+
+.sidebarRailBtnAccent:hover {
+  background: #5d4cf0;
+  color: #ffffff;
+}
+
+.sidebarRailBtnAccent.sidebarRailBtnActive {
+  background: #4d41d8;
+  color: #ffffff;
+}
+
+.sidebarSvg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  display: block;
+}
+
+.sidebarStepPanel {
+  position: absolute;
+  z-index: 35;
+  top: 56px;
+  left: 56px;
+  bottom: 0;
+  width: 280px;
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  border-right: 1px solid #e7e7f0;
+  box-shadow: 8px 0 24px rgba(40, 40, 60, 0.06);
+  animation: panelIn 0.16s ease-out;
+}
+
+.sidebarStepHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 14px 10px;
+  border-bottom: 1px solid #f0f0f7;
+}
+
+.sidebarStepHeader h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #2f2f3d;
+}
+
+.sidebarStepHeader p {
+  margin: 3px 0 0;
+  font-size: 12px;
+  color: #8f8fa3;
+}
+
+.sidebarStepBody {
+  flex: 1;
+  overflow: auto;
+  padding: 10px 10px 16px;
+}
+
+.sidebarToolGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.sidebarToolBtn {
+  border: none;
+  background: #f6f6fb;
+  border-radius: 10px;
+  height: 44px;
+  color: #2f2f3d;
+  cursor: pointer;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebarToolBtn:hover {
+  background: #ececff;
+}
+
+.sidebarToolBtnActive {
+  background: #e8e7ff;
+  color: #4d41d8;
+}
+
+.sidebarActionList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sidebarActionBtn {
+  width: 100%;
+  border: none;
+  background: transparent;
+  border-radius: 10px;
+  padding: 10px 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  text-align: left;
+  color: #3e3e4f;
+  font-size: 13px;
+}
+
+.sidebarActionBtn:hover {
+  background: #f5f4ff;
+}
+
+.sidebarActionBtnActive {
+  background: #eeeaff;
+  color: #4d41d8;
+}
+
+.sidebarActionIcon {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: #f2f2fa;
+  color: #4d41d8;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.sidebarActionIcon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.sidebarActionText {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.sidebarActionText strong {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.sidebarActionText small {
+  font-size: 11px;
+  color: #8f8fa3;
+}
+
+.sidebarAiCard {
+  width: 100%;
+  border: 1px solid #e8e7ff;
+  background: linear-gradient(160deg, #f7f6ff, #ffffff);
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+  text-align: left;
+  margin-bottom: 8px;
+}
+
+.sidebarAiCard:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+.sidebarAiCard:disabled:hover {
+  border-color: #e8e7ff;
+  background: linear-gradient(160deg, #f7f6ff, #ffffff);
+}
+
+.sidebarAiIcon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: #6f5cff;
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.sidebarAiIconAlt {
+  background: #2f3650;
+}
+
+.documentPane {
+  position: absolute;
+  z-index: 15;
+  top: 56px;
+  left: 56px;
+  bottom: 0;
+  width: min(42vw, 480px);
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  border-right: 1px solid #e7e7f0;
+}
+
+.documentPaneFull {
+  right: 0;
+  width: auto;
+}
+
+.documentPaneHeader {
+  padding: 18px 22px 10px;
+  border-bottom: 1px solid #f0f0f7;
+}
+
+.documentPaneHeaderTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.documentPaneHeader h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: #2f2f3d;
+}
+
+.documentPaneHeader p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #8f8fa3;
+}
+
+.docsGenerateButton {
+  flex-shrink: 0;
+  border: none;
+  border-radius: 10px;
+  background: #6f5cff;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 650;
+  padding: 8px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.docsGenerateButton:hover:not(:disabled) {
+  background: #5d4cf0;
+}
+
+.docsGenerateButton:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+.documentEditor {
+  flex: 1;
+  width: 100%;
+  border: none;
+  outline: none;
+  resize: none;
+  padding: 18px 22px 28px;
+  font-size: 15px;
+  line-height: 1.65;
+  color: #2f2f3d;
+  background: transparent;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.documentEditor::placeholder {
+  color: #b0b0c0;
+}
+
+.workspaceWithSidebar {
+  /* marker class for layout context */
 }
 
 @media (max-width: 900px) {
-  .topToolbar {
-    max-width: calc(100vw - 120px);
-    overflow-x: auto;
+  .topNav {
+    padding-left: 56px;
+    grid-template-columns: 1fr auto;
+  }
+
+  .topNavSpacer {
+    display: none;
+  }
+
+  .viewModeButton {
+    padding: 7px 10px;
+    font-size: 12px;
+  }
+
+  .sidebarStepPanel {
+    width: min(280px, calc(100vw - 56px));
+  }
+
+  .documentPane {
+    width: min(48vw, 360px);
+  }
+
+  .canvasAreaSplit {
+    left: calc(56px + min(48vw, 360px));
   }
 
   .menuPanel {
     width: 210px;
+    left: 60px;
   }
 
   .extrasPanel {
-    right: 16px;
-    width: min(320px, calc(100vw - 24px));
+    left: 60px;
+    width: min(320px, calc(100vw - 70px));
   }
 
   .iconsPanel {
-    left: 10px;
-    width: min(292px, calc(100vw - 20px));
+    right: 10px;
+    left: auto;
+    width: min(292px, calc(100vw - 70px));
     max-height: calc(100svh - 100px);
   }
 
   .catalogPanel {
-    left: 10px;
-    width: min(304px, calc(100vw - 20px));
+    right: 10px;
+    left: auto;
+    width: min(304px, calc(100vw - 70px));
     max-height: calc(100svh - 100px);
+  }
+}
+
+/* -- AI New Chat panel (right) -- */
+
+.aiChatPanel {
+  position: absolute;
+  z-index: 38;
+  top: 56px;
+  right: 0;
+  bottom: 0;
+  width: min(380px, 94vw);
+  display: flex;
+  flex-direction: column;
+  background: #fafafc;
+  border-left: 1px solid #ebeaf2;
+  box-shadow: -12px 0 32px rgba(40, 40, 60, 0.07);
+  color-scheme: light;
+  color: #2f2f3d;
+}
+
+.aiChatHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 16px 16px 12px;
+  border-bottom: 1px solid #ececf3;
+  background: #ffffff;
+}
+
+.aiChatHeader h3 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #1f1f2e;
+}
+
+.aiChatHeader p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #8b8b9f;
+}
+
+.aiChatHeaderActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.aiChatBody {
+  flex: 1;
+  overflow: auto;
+  padding: 16px;
+  background: #fafafc;
+}
+
+.aiChatSectionLabel {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 650;
+  color: #3e3e4f;
+}
+
+.aiCreateGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.aiCreateCard {
+  border: 1px solid #e6e6ef;
+  background: #ffffff;
+  border-radius: 14px;
+  padding: 14px 10px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+  min-height: 92px;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.aiCreateCard:hover {
+  border-color: #c8c2f5;
+  background: #f8f7ff;
+  box-shadow: 0 4px 14px rgba(111, 92, 255, 0.08);
+}
+
+.aiCreateCardActive {
+  border-color: #6f5cff;
+  box-shadow: 0 0 0 1px #6f5cff, 0 6px 16px rgba(111, 92, 255, 0.12);
+  background: #f5f3ff;
+}
+
+.aiCreateIcon {
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+  background: linear-gradient(160deg, #f0efff, #e8eefc);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+}
+
+.aiCreateCard strong {
+  font-size: 12px;
+  color: #2f2f3d;
+  line-height: 1.25;
+  font-weight: 650;
+}
+
+.aiStartRow {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.aiStartChip {
+  flex: 1;
+  border: 1px solid #e6e6ef;
+  background: #ffffff;
+  border-radius: 11px;
+  padding: 10px 8px;
+  font-size: 12px;
+  font-weight: 650;
+  color: #3e3e4f;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.aiStartChip:hover {
+  background: #f5f4ff;
+  border-color: #c8c2f5;
+}
+
+.aiSeparateBtn {
+  width: 100%;
+  margin: 0 0 12px;
+  border: 1px dashed #c8c2f5;
+  background: #f8f7ff;
+  border-radius: 11px;
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 650;
+  color: #4c1d95;
+  cursor: pointer;
+}
+
+.aiSeparateBtn:hover {
+  background: #f1efff;
+  border-style: solid;
+}
+
+.aiGitHint {
+  margin: 0 0 12px;
+  font-size: 11px;
+  color: #6b7280;
+  word-break: break-word;
+}
+
+.aiCreditsBar {
+  margin: 8px 0 14px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #ffffff;
+  border: 1px solid #ececf3;
+}
+
+.aiCreditsTrack {
+  height: 6px;
+  border-radius: 999px;
+  background: #ececf4;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.aiCreditsTrack span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #6f5cff, #3b82f6);
+  border-radius: 999px;
+}
+
+.aiCreditsBar p {
+  margin: 0;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.aiUpgradeLink {
+  border: none;
+  background: none;
+  color: #4d41d8;
+  font-weight: 650;
+  cursor: pointer;
+  padding: 0;
+  font-size: 12px;
+}
+
+.aiMessageList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.aiMessage {
+  border-radius: 14px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  max-width: 100%;
+}
+
+.aiMessageUser {
+  background: #eef2ff;
+  color: #312e81;
+  align-self: flex-end;
+  border: 1px solid #e0e7ff;
+}
+
+.aiMessageAssistant {
+  background: #ffffff;
+  color: #374151;
+  align-self: flex-start;
+  border: 1px solid #ececf3;
+}
+
+.aiComposer {
+  display: grid;
+  grid-template-columns: 40px 1fr 42px;
+  gap: 10px;
+  align-items: end;
+  padding: 14px 16px 16px;
+  border-top: 1px solid #ececf3;
+  background: #ffffff;
+  color-scheme: light;
+}
+
+.aiComposerPlus {
+  width: 40px;
+  height: 40px;
+  border: 1px solid #e4e4ee;
+  border-radius: 12px;
+  background: #ffffff;
+  cursor: pointer;
+  font-size: 20px;
+  color: #4a4a5c;
+  box-shadow: 0 1px 2px rgba(20, 20, 40, 0.04);
+}
+
+.aiComposerPlus:hover {
+  background: #f7f6ff;
+  border-color: #c8c2f5;
+}
+
+.aiComposerInput {
+  width: 100%;
+  border: 1px solid #e4e4ee;
+  border-radius: 14px;
+  padding: 12px 14px;
+  resize: none;
+  outline: none;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #1f1f2e !important;
+  background: #ffffff !important;
+  caret-color: #4d41d8;
+  font-family: inherit;
+  min-height: 84px;
+  box-shadow: 0 1px 2px rgba(20, 20, 40, 0.04);
+  color-scheme: light;
+}
+
+.aiComposerInput::placeholder {
+  color: #9a9aaf;
+  opacity: 1;
+}
+
+.aiComposerInput:focus {
+  border-color: #6f5cff;
+  box-shadow: 0 0 0 3px rgba(111, 92, 255, 0.14);
+  background: #ffffff !important;
+}
+
+.aiComposerSend {
+  width: 42px;
+  height: 42px;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(160deg, #5b8def, #3b82f6);
+  color: #fff;
+  font-size: 18px;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.28);
+}
+
+.aiComposerSend:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+
+.aiComposerSend:disabled {
+  opacity: 0.55;
+  cursor: default;
+  box-shadow: none;
+}
+
+.canvasAreaWithAi {
+  right: min(380px, 94vw);
+}
+
+.documentPaneWithAi {
+  /* keep document left; AI sits on right over canvas */
+}
+
+@media (max-width: 900px) {
+  .aiChatPanel {
+    width: min(100vw - 56px, 380px);
+  }
+
+  .aiCreateGrid {
+    grid-template-columns: 1fr;
   }
 }

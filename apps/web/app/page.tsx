@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import styles from "./dashboard.module.css";
+import SettingsModal from "./components/SettingsModal";
 import {
   addPreset,
   addStyle,
@@ -14,14 +15,12 @@ import {
   deletePreset,
   deleteStyle,
   filterFiles,
-  getMcpCursorConfig,
   getWorkspace,
   markGithubSynced,
   moveFileToFolder,
   relativeTime,
   renameFile,
   updateGithub,
-  updateMcp,
   type FileFilter,
   type WorkspaceFile,
   type WorkspaceState,
@@ -60,6 +59,57 @@ export default function DashboardPage() {
   const [botLog, setBotLog] = useState<string[]>([
     "DrawBot ready. Ask me to create a flowchart, ERD, or architecture starter.",
   ]);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [folderError, setFolderError] = useState("");
+  const [settingsTab, setSettingsTab] = useState<
+    | "members"
+    | "billing"
+    | "git"
+    | "icons"
+    | "tokens"
+    | "team"
+    | "profile"
+    | "appearance"
+    | "mcp"
+  >("mcp");
+
+  const handleCreateFolder = () => {
+    const name = newFolderName.trim();
+    if (!name) {
+      setFolderError("Enter a folder name.");
+      return;
+    }
+    const exists = workspace?.folders.some(
+      (folder) => folder.name.toLowerCase() === name.toLowerCase(),
+    );
+    if (exists) {
+      setFolderError("A folder with that name already exists.");
+      return;
+    }
+    const folder = createFolder(name);
+    setNewFolderName("");
+    setFolderError("");
+    setSelectedFolderId(folder.id);
+    setView("folders");
+    refresh();
+  };
+
+  const openSettings = (
+    tab:
+      | "members"
+      | "billing"
+      | "git"
+      | "icons"
+      | "tokens"
+      | "team"
+      | "profile"
+      | "appearance"
+      | "mcp" = "mcp",
+  ) => {
+    setSettingsTab(tab);
+    setSettingsOpen(true);
+  };
 
   const refresh = useCallback(() => {
     setWorkspace(getWorkspace());
@@ -124,12 +174,10 @@ export default function DashboardPage() {
     return <div className={styles.loading}>Loading workspace…</div>;
   }
 
-  const mcpConfig = getMcpCursorConfig();
-
   return (
     <div className={styles.shell}>
       <aside className={styles.sidebar}>
-        <button type="button" className={styles.teamButton}>
+        <button type="button" className={styles.teamButton} onClick={() => openSettings("team")}>
           <span className={styles.teamMark} aria-hidden />
           <span>{workspace.teamName}</span>
           <span className={styles.caret}>▾</span>
@@ -142,6 +190,15 @@ export default function DashboardPage() {
               type="button"
               className={`${styles.navItem} ${view === item.id ? styles.navItemActive : ""}`}
               onClick={() => {
+                if (item.id === "mcp") {
+                  openSettings("mcp");
+                  return;
+                }
+                if (item.id === "github") {
+                  openSettings("git");
+                  setView(item.id);
+                  return;
+                }
                 setView(item.id);
                 setMenuFileId(null);
                 if (item.id !== "folders") setSelectedFolderId(null);
@@ -224,7 +281,7 @@ export default function DashboardPage() {
                 <button
                   type="button"
                   className={styles.quickCard}
-                  onClick={() => setView("mcp")}
+                  onClick={() => openSettings("mcp")}
                 >
                   <span className={`${styles.quickIcon} ${styles.quickIconMcp}`}>{"</>"}</span>
                   <strong>Connect DrawApp MCP</strong>
@@ -236,32 +293,46 @@ export default function DashboardPage() {
               <section className={styles.panelCard}>
                 <div className={styles.panelHead}>
                   <h2>Team Folders</h2>
-                  <button
-                    type="button"
-                    className={styles.secondaryButton}
-                    onClick={() => {
-                      const name = window.prompt("Folder name", "New folder");
-                      if (!name) return;
-                      createFolder(name);
-                      refresh();
+                </div>
+                <form
+                  className={styles.folderCreateRow}
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    handleCreateFolder();
+                  }}
+                >
+                  <input
+                    value={newFolderName}
+                    onChange={(event) => {
+                      setNewFolderName(event.target.value);
+                      if (folderError) setFolderError("");
                     }}
-                  >
+                    placeholder="New folder name"
+                    aria-label="New folder name"
+                    autoComplete="off"
+                  />
+                  <button type="submit" className={styles.secondaryButton}>
                     + New folder
                   </button>
-                </div>
+                </form>
+                {folderError ? <p className={styles.folderError}>{folderError}</p> : null}
                 <div className={styles.folderRow}>
-                  {workspace.folders.map((folder) => (
-                    <button
-                      key={folder.id}
-                      type="button"
-                      className={`${styles.folderChip} ${
-                        selectedFolderId === folder.id ? styles.folderChipActive : ""
-                      }`}
-                      onClick={() => setSelectedFolderId(folder.id)}
-                    >
-                      {folder.name}
-                    </button>
-                  ))}
+                  {workspace.folders.length === 0 ? (
+                    <p className={styles.empty}>No folders yet. Create one above.</p>
+                  ) : (
+                    workspace.folders.map((folder) => (
+                      <button
+                        key={folder.id}
+                        type="button"
+                        className={`${styles.folderChip} ${
+                          selectedFolderId === folder.id ? styles.folderChipActive : ""
+                        }`}
+                        onClick={() => setSelectedFolderId(folder.id)}
+                      >
+                        {folder.name}
+                      </button>
+                    ))
+                  )}
                 </div>
                 {selectedFolderId ? (
                   <button
@@ -333,24 +404,32 @@ export default function DashboardPage() {
                             >
                               Rename
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const folderName = window.prompt(
-                                  "Move to folder name (blank = unsorted)",
-                                  folder?.name ?? "",
-                                );
-                                if (folderName === null) return;
-                                const match = workspace.folders.find(
-                                  (item) => item.name.toLowerCase() === folderName.trim().toLowerCase(),
-                                );
-                                moveFileToFolder(file.id, match?.id ?? null);
-                                setMenuFileId(null);
-                                refresh();
-                              }}
-                            >
-                              Move…
-                            </button>
+                            <div className={styles.menuMoveGroup}>
+                              <span className={styles.menuMoveLabel}>Move to</span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  moveFileToFolder(file.id, null);
+                                  setMenuFileId(null);
+                                  refresh();
+                                }}
+                              >
+                                Unsorted
+                              </button>
+                              {workspace.folders.map((item) => (
+                                <button
+                                  key={item.id}
+                                  type="button"
+                                  onClick={() => {
+                                    moveFileToFolder(file.id, item.id);
+                                    setMenuFileId(null);
+                                    refresh();
+                                  }}
+                                >
+                                  {item.name}
+                                </button>
+                              ))}
+                            </div>
                             <button
                               type="button"
                               onClick={() => {
@@ -614,10 +693,10 @@ export default function DashboardPage() {
 
         {view === "mcp" && (
           <section className={styles.panelCard}>
-            <h2>Connect DrawApp MCP</h2>
+            <h2>DrawApp MCP</h2>
             <p className={styles.muted}>
-              This workspace ships a real MCP server (`apps/mcp-server`) that can list diagram templates
-              and scaffold board JSON for Cursor / Claude Desktop.
+              Connect Claude Code, Claude Desktop, Cursor, VS Code, Codex, or GitHub Copilot to the
+              real <code>apps/mcp-server</code> using client-specific setup steps.
             </p>
             <div className={styles.mcpStatus}>
               <strong>Status:</strong>{" "}
@@ -626,69 +705,20 @@ export default function DashboardPage() {
                 ? ` · checked ${relativeTime(workspace.mcp.lastCheckedAt)}`
                 : ""}
             </div>
-            <ol className={styles.steps}>
-              <li>
-                From the repo root run <code>pnpm install</code> then{" "}
-                <code>pnpm --filter mcp-server build</code>
-              </li>
-              <li>Add the JSON below to Cursor MCP settings (or Claude Desktop config)</li>
-              <li>Restart Cursor and confirm tools like <code>list_templates</code> appear</li>
-            </ol>
-            <pre className={styles.codeBlock}>{JSON.stringify(mcpConfig, null, 2)}</pre>
-            <div className={styles.listActions}>
-              <button
-                type="button"
-                className={styles.primaryButton}
-                onClick={async () => {
-                  await navigator.clipboard.writeText(JSON.stringify(mcpConfig, null, 2));
-                  updateMcp({ connected: true, notes: "Config copied from dashboard" });
-                  refresh();
-                }}
-              >
-                Copy MCP config
-              </button>
-              <button
-                type="button"
-                className={styles.secondaryButton}
-                onClick={() => {
-                  updateMcp({
-                    connected: true,
-                    notes: "Marked connected after manual Cursor setup",
-                  });
-                  refresh();
-                }}
-              >
-                Mark as connected
-              </button>
-              <button
-                type="button"
-                className={styles.secondaryButton}
-                onClick={() => {
-                  updateMcp({ connected: false, notes: "" });
-                  refresh();
-                }}
-              >
-                Reset status
-              </button>
-            </div>
-            <h3 className={styles.subheading}>Available MCP tools</h3>
-            <ul className={styles.toolList}>
-              <li>
-                <code>list_templates</code> — list flowchart, ERD, cloud, freeform templates
-              </li>
-              <li>
-                <code>get_template</code> — fetch a template definition by id
-              </li>
-              <li>
-                <code>create_board_stub</code> — generate a new board JSON payload
-              </li>
-              <li>
-                <code>list_icon_categories</code> — list icon library categories
-              </li>
-            </ul>
+            <button type="button" className={styles.primaryButton} onClick={() => openSettings("mcp")}>
+              Open MCP settings
+            </button>
           </section>
         )}
       </main>
+
+      <SettingsModal
+        open={settingsOpen}
+        initialTab={settingsTab}
+        workspace={workspace}
+        onClose={() => setSettingsOpen(false)}
+        onRefresh={refresh}
+      />
 
       <button type="button" className={styles.helpFab} title="Shortcuts: Alt+N new file, Ctrl+K search">
         ?

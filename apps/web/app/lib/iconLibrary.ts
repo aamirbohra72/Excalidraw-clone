@@ -708,6 +708,66 @@ export const BUILTIN_ICONS: LibraryIcon[] = [
       "#232f3e",
     ),
   },
+  {
+    id: "jenkins",
+    name: "Jenkins",
+    category: "tech",
+    keywords: ["ci", "cd", "pipeline"],
+    src: brandIcon(
+      '<circle cx="24" cy="24" r="12" fill="#335061"/><circle cx="24" cy="22" r="7" fill="#fff"/><circle cx="21.5" cy="20.5" r="1.3" fill="#335061"/><circle cx="26.5" cy="20.5" r="1.3" fill="#335061"/><path d="M20 25c1.2 2 6.8 2 8 0" fill="none" stroke="#335061" stroke-width="1.6" stroke-linecap="round"/><path d="M30 14 34 10M18 14 14 10" stroke="#d33833" stroke-width="2" stroke-linecap="round"/>',
+      "#f0d6b7",
+    ),
+  },
+  {
+    id: "prometheus",
+    name: "Prometheus",
+    category: "tech",
+    keywords: ["metrics", "monitoring", "observability"],
+    src: brandIcon(
+      '<circle cx="24" cy="24" r="12" fill="#e6522c"/><path d="M24 14v12M18 20h12" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/><circle cx="24" cy="30" r="2.2" fill="#fff"/>',
+      "#1b1b1b",
+    ),
+  },
+  {
+    id: "terraform",
+    name: "Terraform",
+    category: "tech",
+    keywords: ["iac", "hashicorp", "infra"],
+    src: brandIcon(
+      '<path d="M10 18h9v12H10zm10 6h9v12h-9zm10-6h9v12h-9z" fill="#7b42bc"/><path d="M20 12h9v6h-9z" fill="#5c4ee5"/>',
+      "#1e1733",
+    ),
+  },
+  {
+    id: "rds",
+    name: "RDS",
+    category: "cloud",
+    keywords: ["aws", "database"],
+    src: brandIcon(
+      '<ellipse cx="24" cy="16" rx="12" ry="5" fill="#3b48cc"/><path d="M12 16v10c0 2.8 5.4 5 12 5s12-2.2 12-5V16" fill="#527fff"/><ellipse cx="24" cy="26" rx="12" ry="5" fill="#3b48cc"/>',
+      "#232f3e",
+    ),
+  },
+  {
+    id: "pubsub",
+    name: "Pub/Sub",
+    category: "cloud",
+    keywords: ["gcp", "messaging"],
+    src: brandIcon(
+      '<circle cx="24" cy="14" r="5" fill="#4285f4"/><circle cx="14" cy="32" r="5" fill="#34a853"/><circle cx="34" cy="32" r="5" fill="#fbbc04"/><path d="M24 19v5M19 29l5-5 5 5" stroke="#fff" stroke-width="2" stroke-linecap="round"/>',
+      "#1a73e8",
+    ),
+  },
+  {
+    id: "gke",
+    name: "GKE",
+    category: "cloud",
+    keywords: ["gcp", "kubernetes"],
+    src: brandIcon(
+      '<polygon points="24,11 33,16 33,26 24,31 15,26 15,16" fill="none" stroke="#fff" stroke-width="2"/><circle cx="24" cy="21" r="3" fill="#4285f4"/>',
+      "#1a73e8",
+    ),
+  },
 ];
 
 const CUSTOM_STORAGE_KEY = "draw-app-custom-icons-v1";

@@ -50,6 +50,8 @@ type MainToolId = (typeof MAIN_TOOLS)[number]["id"];
 type ExtraToolId = (typeof EXTRA_TOOLS)[number]["id"];
 type ToolId = MainToolId | ExtraToolId | "eraser";
 type ShapeTool = "rectangle" | "diamond" | "ellipse" | "line" | "arrow" | "frame";
+type ViewMode = "document" | "both" | "canvas";
+type SidebarStep = "tools" | "insert" | "ai" | "search" | "share" | "file" | null;
 
 type Point = { x: number; y: number };
 
@@ -140,6 +142,19 @@ type RoomCanvasState = {
 };
 
 type GenerateTab = "text" | "mermaid";
+type AiCreateFormat =
+  | "architecture"
+  | "flowchart"
+  | "erd"
+  | "sequence"
+  | "bpmn"
+  | "document";
+
+type AiChatMessage = {
+  id: string;
+  role: "user" | "assistant" | "system";
+  text: string;
+};
 
 const isShapeTool = (tool: ToolId): tool is ShapeTool =>
   ["rectangle", "diamond", "ellipse", "line", "arrow", "frame"].includes(tool);
@@ -152,7 +167,314 @@ const getShapeBounds = (start: Point, end: Point) => {
   return { x, y, width, height };
 };
 
+type Bounds = { x: number; y: number; width: number; height: number };
+
+const DIAGRAM_GAP = 72;
+
+const getElementBounds = (element: CanvasElement): Bounds | null => {
+  if (element.kind === "shape") {
+    const bounds = getShapeBounds(element.start, element.end);
+    return bounds.width > 0 || bounds.height > 0 ? bounds : null;
+  }
+  if (element.kind === "draw") {
+    if (element.points.length === 0) return null;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const point of element.points) {
+      minX = Math.min(minX, point.x);
+      minY = Math.min(minY, point.y);
+      maxX = Math.max(maxX, point.x);
+      maxY = Math.max(maxY, point.y);
+    }
+    return { x: minX, y: minY, width: Math.max(1, maxX - minX), height: Math.max(1, maxY - minY) };
+  }
+  if (element.kind === "text") {
+    const lines = element.value.split("\n").length;
+    return {
+      x: element.point.x,
+      y: element.point.y,
+      width: Math.min(420, Math.max(160, element.value.length * 7)),
+      height: Math.max(28, lines * 20),
+    };
+  }
+  if (element.kind === "image" || element.kind === "web" || element.kind === "note") {
+    return {
+      x: element.point.x,
+      y: element.point.y,
+      width: element.width,
+      height: element.height,
+    };
+  }
+  if (element.kind === "table") {
+    return {
+      x: element.point.x,
+      y: element.point.y,
+      width: element.width,
+      height: 40 + element.fields.length * 28,
+    };
+  }
+  return null;
+};
+
+const inflateBounds = (bounds: Bounds, gap: number): Bounds => ({
+  x: bounds.x - gap,
+  y: bounds.y - gap,
+  width: bounds.width + gap * 2,
+  height: bounds.height + gap * 2,
+});
+
+const boundsOverlap = (a: Bounds, b: Bounds) =>
+  a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+
+const getElementsUnionBounds = (elements: CanvasElement[]): Bounds | null => {
+  const boxes = elements
+    .map(getElementBounds)
+    .filter((item): item is Bounds => Boolean(item));
+  if (boxes.length === 0) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const box of boxes) {
+    minX = Math.min(minX, box.x);
+    minY = Math.min(minY, box.y);
+    maxX = Math.max(maxX, box.x + box.width);
+    maxY = Math.max(maxY, box.y + box.height);
+  }
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+};
+
+const offsetCanvasElements = (elements: CanvasElement[], dx: number, dy: number): CanvasElement[] =>
+  elements.map((element) => {
+    if (element.kind === "shape") {
+      return {
+        ...element,
+        start: { x: element.start.x + dx, y: element.start.y + dy },
+        end: { x: element.end.x + dx, y: element.end.y + dy },
+      };
+    }
+    if (element.kind === "draw") {
+      return {
+        ...element,
+        points: element.points.map((point) => ({ x: point.x + dx, y: point.y + dy })),
+      };
+    }
+    if (
+      element.kind === "text" ||
+      element.kind === "image" ||
+      element.kind === "web" ||
+      element.kind === "note" ||
+      element.kind === "table"
+    ) {
+      return {
+        ...element,
+        point: { x: element.point.x + dx, y: element.point.y + dy },
+      };
+    }
+    return element;
+  });
+
+const findFreeDiagramPoint = (
+  elements: CanvasElement[],
+  width: number,
+  height: number,
+  preferred: Point = { x: 80, y: 100 },
+  gap = DIAGRAM_GAP,
+): Point => {
+  const occupied = elements
+    .map(getElementBounds)
+    .filter((item): item is Bounds => {
+      if (!item) return false;
+      return item.width > 0 && item.height > 0;
+    })
+    .map((item) => inflateBounds(item, gap / 2));
+
+  const fits = (point: Point) => {
+    const rect = { x: point.x, y: point.y, width, height };
+    return !occupied.some((box) => boundsOverlap(rect, box));
+  };
+
+  if (occupied.length === 0 || fits(preferred)) {
+    return preferred;
+  }
+
+  let maxX = preferred.x;
+  let maxY = preferred.y;
+  let minX = preferred.x;
+  let minY = preferred.y;
+  for (const box of occupied) {
+    maxX = Math.max(maxX, box.x + box.width);
+    maxY = Math.max(maxY, box.y + box.height);
+    minX = Math.min(minX, box.x);
+    minY = Math.min(minY, box.y);
+  }
+
+  const stepX = Math.max(140, Math.floor(width / 2));
+  const stepY = Math.max(120, Math.floor(height / 2));
+  const candidates: Point[] = [
+    { x: maxX + gap, y: minY },
+    { x: minX, y: maxY + gap },
+    { x: maxX + gap, y: maxY + gap },
+    { x: preferred.x, y: maxY + gap },
+    { x: maxX + gap, y: preferred.y },
+  ];
+
+  for (let row = 0; row < 10; row += 1) {
+    for (let col = 0; col < 10; col += 1) {
+      candidates.push({ x: maxX + gap + col * stepX, y: minY + row * stepY });
+      candidates.push({ x: minX + col * stepX, y: maxY + gap + row * stepY });
+      candidates.push({ x: preferred.x + col * stepX, y: preferred.y + row * stepY });
+    }
+  }
+
+  for (const point of candidates) {
+    if (fits(point)) return point;
+  }
+
+  return { x: preferred.x, y: maxY + gap };
+};
+
+const buildFramedDiagramElements = (
+  src: string,
+  label: string,
+  existing: CanvasElement[],
+  diagramWidth = 860,
+  diagramHeight = 480,
+): { elements: CanvasElement[]; origin: Point } => {
+  const pad = 24;
+  const titleSpace = 32;
+  const frameWidth = diagramWidth + pad * 2;
+  const frameHeight = diagramHeight + pad * 2 + titleSpace;
+  const origin = findFreeDiagramPoint(existing, frameWidth, frameHeight);
+
+  const frame: ShapeElement = {
+    id: makeId(),
+    kind: "shape",
+    tool: "frame",
+    start: { x: origin.x, y: origin.y },
+    end: { x: origin.x + frameWidth, y: origin.y + frameHeight },
+    color: "#818cf8",
+    strokeWidth: 2,
+    opacity: 1,
+  };
+  const title: TextElement = {
+    id: makeId(),
+    kind: "text",
+    point: { x: origin.x + pad, y: origin.y + 10 },
+    value: label,
+    color: "#4338ca",
+    opacity: 1,
+  };
+  const image: ImageElement = {
+    id: makeId(),
+    kind: "image",
+    point: { x: origin.x + pad, y: origin.y + pad + titleSpace },
+    width: diagramWidth,
+    height: diagramHeight,
+    src,
+  };
+
+  return { elements: [frame, title, image], origin };
+};
+
+const separateOverlappingDiagrams = (elements: CanvasElement[]): CanvasElement[] => {
+  const images = elements.filter((item): item is ImageElement => item.kind === "image");
+  if (images.length < 2) return elements;
+
+  const nonImages = elements.filter((item) => item.kind !== "image");
+  const relocated: ImageElement[] = [];
+
+  for (let index = 0; index < images.length; index += 1) {
+    const image = images[index]!;
+    const context = [...nonImages, ...relocated];
+    const current = {
+      x: image.point.x,
+      y: image.point.y,
+      width: image.width,
+      height: image.height,
+    };
+    const overlaps = context
+      .map(getElementBounds)
+      .filter((item): item is Bounds => Boolean(item))
+      .some((box) => boundsOverlap(current, inflateBounds(box, DIAGRAM_GAP / 2)));
+
+    if (!overlaps && index === 0) {
+      relocated.push(image);
+      continue;
+    }
+    if (!overlaps) {
+      relocated.push(image);
+      continue;
+    }
+
+    const point = findFreeDiagramPoint(
+      context,
+      image.width,
+      image.height,
+      index === 0 ? image.point : { x: 80, y: 100 },
+    );
+    relocated.push({ ...image, point });
+  }
+
+  let imageCursor = 0;
+  return elements.map((item) => {
+    if (item.kind !== "image") return item;
+    return relocated[imageCursor++]!;
+  });
+};
+
 const makeId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+const summarizeCanvasArchitecture = (elements: CanvasElement[], canvasName: string) => {
+  const lines: string[] = [`Board: ${canvasName}`, `Element count: ${elements.length}`, ""];
+
+  elements.forEach((element, index) => {
+    const n = index + 1;
+    if (element.kind === "text") {
+      lines.push(`${n}. Text @(${Math.round(element.point.x)},${Math.round(element.point.y)}): ${element.value}`);
+      return;
+    }
+    if (element.kind === "note") {
+      lines.push(
+        `${n}. Sticky note @(${Math.round(element.point.x)},${Math.round(element.point.y)}): ${element.value.replace(/\n/g, " | ")}`,
+      );
+      return;
+    }
+    if (element.kind === "table") {
+      const fields = element.fields
+        .map((field) => `${field.pk ? "PK " : ""}${field.name}:${field.type}`)
+        .join(", ");
+      lines.push(
+        `${n}. ER table "${element.title}" @(${Math.round(element.point.x)},${Math.round(element.point.y)}) fields=[${fields}]`,
+      );
+      return;
+    }
+    if (element.kind === "shape") {
+      lines.push(
+        `${n}. ${element.tool} from (${Math.round(element.start.x)},${Math.round(element.start.y)}) to (${Math.round(element.end.x)},${Math.round(element.end.y)})`,
+      );
+      return;
+    }
+    if (element.kind === "image") {
+      lines.push(
+        `${n}. Image/icon @(${Math.round(element.point.x)},${Math.round(element.point.y)}) size=${Math.round(element.width)}x${Math.round(element.height)}`,
+      );
+      return;
+    }
+    if (element.kind === "web") {
+      lines.push(`${n}. Web embed ${element.url} @(${Math.round(element.point.x)},${Math.round(element.point.y)})`);
+      return;
+    }
+    if (element.kind === "draw") {
+      lines.push(`${n}. Freehand path with ${element.points.length} points`);
+    }
+  });
+
+  return lines.join("\n");
+};
+
 const DEFAULT_STROKE_COLOR = "#1f1f2e";
 const DEFAULT_STROKE_WIDTH = 2;
 const DEFAULT_OPACITY = 100;
@@ -436,6 +758,83 @@ const menuGlyph = (kind: "catalog" | "icons" | "flow" | "arch" | "ai" | "mermaid
   );
 };
 
+const sidebarGlyph = (
+  kind: "tools" | "insert" | "ai" | "search" | "share" | "file" | "home" | "center" | "command",
+) => {
+  const cls = styles.sidebarSvg;
+  if (kind === "tools") {
+    return (
+      <svg viewBox="0 0 24 24" className={cls} aria-hidden>
+        <path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L4 17v3h3l5.3-5.3a4 4 0 0 0 5.4-5.4Z" />
+        <path d="m13.5 7.5 3 3" />
+      </svg>
+    );
+  }
+  if (kind === "insert") {
+    return (
+      <svg viewBox="0 0 24 24" className={cls} aria-hidden>
+        <rect x="4" y="4" width="16" height="16" rx="3" />
+        <path d="M12 8v8M8 12h8" />
+      </svg>
+    );
+  }
+  if (kind === "ai") {
+    return (
+      <svg viewBox="0 0 24 24" className={cls} aria-hidden>
+        <path d="M12 3 13.8 8.2 19 10 13.8 11.8 12 17 10.2 11.8 5 10 10.2 8.2Z" />
+        <path d="M18 15 18.8 17.2 21 18 18.8 18.8 18 21 17.2 18.8 15 18 17.2 17.2Z" />
+      </svg>
+    );
+  }
+  if (kind === "search") {
+    return (
+      <svg viewBox="0 0 24 24" className={cls} aria-hidden>
+        <circle cx="11" cy="11" r="6.5" />
+        <path d="m16 16 4 4" />
+      </svg>
+    );
+  }
+  if (kind === "share") {
+    return (
+      <svg viewBox="0 0 24 24" className={cls} aria-hidden>
+        <circle cx="18" cy="5" r="2.4" />
+        <circle cx="6" cy="12" r="2.4" />
+        <circle cx="18" cy="19" r="2.4" />
+        <path d="M8.2 11 15.7 6.4M8.2 13 15.7 17.6" />
+      </svg>
+    );
+  }
+  if (kind === "file") {
+    return (
+      <svg viewBox="0 0 24 24" className={cls} aria-hidden>
+        <path d="M7 3.5h7l4 4V20a1.5 1.5 0 0 1-1.5 1.5h-9.5A1.5 1.5 0 0 1 5.5 20V5A1.5 1.5 0 0 1 7 3.5z" />
+        <path d="M14 3.5V8h4.5" />
+      </svg>
+    );
+  }
+  if (kind === "home") {
+    return (
+      <svg viewBox="0 0 24 24" className={cls} aria-hidden>
+        <path d="M4 11.5 12 5l8 6.5" />
+        <path d="M7 10.5V19h10v-8.5" />
+      </svg>
+    );
+  }
+  if (kind === "center") {
+    return (
+      <svg viewBox="0 0 24 24" className={cls} aria-hidden>
+        <rect x="4" y="4" width="16" height="16" rx="2" />
+        <path d="M12 8v8M8 12h8" />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 24 24" className={cls} aria-hidden>
+      <path d="M4 7h16M4 12h10M4 17h14" />
+    </svg>
+  );
+};
+
 export default function BoardPage() {
   return (
     <Suspense
@@ -458,6 +857,9 @@ function BoardCanvas() {
   const searchParams = useSearchParams();
   const fileId = params?.id ?? "";
   const [fileMissing, setFileMissing] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>("canvas");
+  const [sidebarStep, setSidebarStep] = useState<SidebarStep>("tools");
+  const [documentNotes, setDocumentNotes] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [showFindPanel, setShowFindPanel] = useState(false);
@@ -486,6 +888,16 @@ function BoardCanvas() {
   const [generateTab, setGenerateTab] = useState<GenerateTab>("text");
   const [generateInput, setGenerateInput] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isGeneratingDocs, setIsGeneratingDocs] = useState(false);
+  const [docsError, setDocsError] = useState("");
+  const [showAiChat, setShowAiChat] = useState(false);
+  const [aiFormat, setAiFormat] = useState<AiCreateFormat>("architecture");
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiError, setAiError] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiCreditsUsed, setAiCreditsUsed] = useState(0);
+  const [aiMessages, setAiMessages] = useState<AiChatMessage[]>([]);
+  const [aiGitContext, setAiGitContext] = useState("");
   const [generateError, setGenerateError] = useState("");
   const [isRoomHydrated, setIsRoomHydrated] = useState(false);
   const [showIconsPanel, setShowIconsPanel] = useState(false);
@@ -497,6 +909,13 @@ function BoardCanvas() {
   const [customIcons, setCustomIcons] = useState<LibraryIcon[]>([]);
   const [pendingLibraryIcon, setPendingLibraryIcon] = useState<LibraryIcon | null>(null);
   const [noteColor, setNoteColor] = useState<(typeof NOTE_COLORS)[number]>(NOTE_COLORS[0]);
+  const [inlineEdit, setInlineEdit] = useState<{
+    id: string;
+    kind: "text" | "note";
+    value: string;
+  } | null>(null);
+  const inlineEditRef = useRef<HTMLTextAreaElement | null>(null);
+  const skipInlineBlurCommitRef = useRef(false);
   const extrasPanelRef = useRef<HTMLElement | null>(null);
   const moreToolsButtonRef = useRef<HTMLButtonElement | null>(null);
   const iconsPanelRef = useRef<HTMLElement | null>(null);
@@ -560,16 +979,20 @@ function BoardCanvas() {
     setElements(Array.isArray(file.content.elements) ? (file.content.elements as CanvasElement[]) : []);
     setPan(file.content.pan ?? { x: 0, y: 0 });
     setBackgroundColor(file.content.backgroundColor ?? "#f7f7fb");
+    setDocumentNotes(
+      typeof file.content.documentNotes === "string" ? file.content.documentNotes : "",
+    );
     setRoomId(fileId);
     touchFile(fileId);
     if (searchParams.get("ai") === "1") {
-      setShowGenerateModal(true);
-      setGenerateTab("text");
+      setShowAiChat(true);
+      setAiFormat("architecture");
     }
     const preset = searchParams.get("preset");
     if (preset) {
-      setGenerateInput(preset);
-      setShowGenerateModal(true);
+      setAiPrompt(preset);
+      setShowAiChat(true);
+      setAiFormat("flowchart");
     }
     const pendingTemplateKey = `draw-app-pending-template:${fileId}`;
     const pendingTemplate = window.localStorage.getItem(pendingTemplateKey);
@@ -609,10 +1032,11 @@ function BoardCanvas() {
         pan,
         backgroundColor,
         canvasName,
+        documentNotes,
       });
     }, 400);
     return () => window.clearTimeout(timer);
-  }, [fileId, fileMissing, elements, pan, backgroundColor, canvasName]);
+  }, [fileId, fileMissing, elements, pan, backgroundColor, canvasName, documentNotes]);
 
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
@@ -834,22 +1258,23 @@ function BoardCanvas() {
   }, [showExtras]);
 
   useEffect(() => {
-    if (!menuOpen) {
+    if (sidebarStep !== "file") {
       return;
     }
     const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target as Node | null;
+      const target = event.target as HTMLElement | null;
       if (!target) return;
+      if (target.closest(`.${styles.sidebarRail}`)) return;
       const inMenu = menuPanelRef.current?.contains(target);
-      const inButton = menuButtonRef.current?.contains(target);
-      if (!inMenu && !inButton) {
+      if (!inMenu) {
+        setSidebarStep(null);
         setMenuOpen(false);
         setShowPreferences(false);
       }
     };
     window.addEventListener("pointerdown", handlePointerDown);
     return () => window.removeEventListener("pointerdown", handlePointerDown);
-  }, [menuOpen]);
+  }, [sidebarStep]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -966,9 +1391,24 @@ function BoardCanvas() {
       },
       {
         id: "ai",
-        label: "Text to diagram (AI)",
+        label: "Open AI New Chat",
         hint: "",
-        run: () => openGenerateModal("text"),
+        run: () => {
+          setShowAiChat(true);
+          setSidebarStep(null);
+        },
+      },
+      {
+        id: "separate-diagrams",
+        label: "Separate overlapping diagrams",
+        hint: "",
+        run: () => handleSeparateOverlappingDiagrams(),
+      },
+      {
+        id: "docs",
+        label: "Generate docs from canvas (Mistral)",
+        hint: "",
+        run: () => void handleGenerateDocsFromCanvas(),
       },
       {
         id: "catalog",
@@ -1030,6 +1470,92 @@ function BoardCanvas() {
     setGenerateInput("");
   };
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const raw = window.localStorage.getItem("draw-app-ai-credits-used");
+    const used = raw ? Number(raw) : 0;
+    setAiCreditsUsed(Number.isFinite(used) ? used : 0);
+  }, []);
+
+  const toggleSidebarStep = (step: Exclude<SidebarStep, null>) => {
+    if (step === "ai") {
+      setShowAiChat((previous) => !previous);
+      setSidebarStep(null);
+      setMenuOpen(false);
+      setShowExtras(false);
+      return;
+    }
+    setSidebarStep((previous) => (previous === step ? null : step));
+    setMenuOpen(false);
+    setShowExtras(false);
+  };
+
+  const panelOffsetLeft = sidebarStep ? 336 : 68;
+
+  const commitInlineEdit = (nextValue?: string) => {
+    if (!inlineEdit) {
+      return;
+    }
+    if (skipInlineBlurCommitRef.current) {
+      skipInlineBlurCommitRef.current = false;
+      return;
+    }
+    const value = (nextValue ?? inlineEdit.value).trim();
+    const editId = inlineEdit.id;
+    const editKind = inlineEdit.kind;
+    if (!value) {
+      setElements((previous) => previous.filter((item) => item.id !== editId));
+      setStatusMessage(editKind === "note" ? "Sticky note cancelled" : "Text cancelled");
+    } else {
+      setElements((previous) =>
+        previous.map((item) =>
+          item.id === editId && (item.kind === "text" || item.kind === "note")
+            ? { ...item, value }
+            : item,
+        ),
+      );
+      setStatusMessage(editKind === "note" ? "Sticky note added" : "Text added");
+    }
+    setInlineEdit(null);
+  };
+
+  const cancelInlineEdit = () => {
+    if (!inlineEdit) {
+      return;
+    }
+    skipInlineBlurCommitRef.current = true;
+    const editId = inlineEdit.id;
+    setElements((previous) => previous.filter((item) => item.id !== editId));
+    setInlineEdit(null);
+    setStatusMessage("Cancelled");
+  };
+
+  useEffect(() => {
+    if (!inlineEdit) {
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      inlineEditRef.current?.focus();
+      inlineEditRef.current?.select();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [inlineEdit?.id]);
+
+  const editingElement = inlineEdit
+    ? elements.find((item) => item.id === inlineEdit.id)
+    : null;
+  const inlineEditStyle =
+    editingElement && (editingElement.kind === "text" || editingElement.kind === "note")
+      ? {
+          left: editingElement.point.x + pan.x,
+          top: editingElement.point.y + pan.y,
+          width: editingElement.kind === "note" ? editingElement.width : 220,
+          minHeight: editingElement.kind === "note" ? editingElement.height : 36,
+          background:
+            editingElement.kind === "note" ? editingElement.color : "rgba(255,255,255,0.96)",
+        }
+      : null;
+
   const handleGenerateDiagram = async () => {
     const prompt = generateInput.trim();
     if (!prompt) {
@@ -1075,15 +1601,17 @@ function BoardCanvas() {
       });
 
       if (canRenderDiagram) {
-        const diagramImage: ImageElement = {
-          id: makeId(),
-          kind: "image",
-          point: { x: 120, y: 160 },
-          width: 860,
-          height: 480,
-          src: diagramSrc,
-        };
-        setElements((previous) => [...previous, diagramImage]);
+        let origin = { x: 80, y: 100 };
+        setElements((previous) => {
+          const framed = buildFramedDiagramElements(
+            diagramSrc,
+            "Generated diagram",
+            previous,
+          );
+          origin = framed.origin;
+          return [...previous, ...framed.elements];
+        });
+        setPan({ x: 80 - origin.x, y: 80 - origin.y });
       } else {
         const note: TextElement = {
           id: makeId(),
@@ -1105,6 +1633,194 @@ function BoardCanvas() {
       setGenerateError(`Generation failed: ${String(error)}`);
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  const handleGenerateDocsFromCanvas = async () => {
+    if (elements.length === 0) {
+      setDocsError("Canvas is empty. Insert or draw an architecture first.");
+      setStatusMessage("Add diagram content before generating docs");
+      return;
+    }
+
+    setIsGeneratingDocs(true);
+    setDocsError("");
+    setStatusMessage("Generating architecture docs with Mistral…");
+
+    try {
+      const response = await fetch("/api/docs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          canvasName,
+          architectureSummary: summarizeCanvasArchitecture(elements, canvasName),
+          existingNotes: documentNotes,
+        }),
+      });
+      const data = (await response.json()) as {
+        markdown?: string;
+        error?: string;
+        provider?: string;
+      };
+
+      if (!response.ok || !data.markdown) {
+        setDocsError(data.error ?? "Could not generate documentation.");
+        setStatusMessage(data.error ?? "Docs generation failed");
+        return;
+      }
+
+      setDocumentNotes(data.markdown);
+      setViewMode((previous) => (previous === "canvas" ? "both" : previous));
+      setSidebarStep(null);
+      setStatusMessage(
+        `Architecture docs generated${data.provider ? ` via ${data.provider}` : ""}`,
+      );
+    } catch (error) {
+      setDocsError(`Docs generation failed: ${String(error)}`);
+      setStatusMessage("Docs generation failed");
+    } finally {
+      setIsGeneratingDocs(false);
+    }
+  };
+
+  const consumeAiCredit = () => {
+    const next = aiCreditsUsed + 1;
+    setAiCreditsUsed(next);
+    window.localStorage.setItem("draw-app-ai-credits-used", String(next));
+  };
+
+  const handleAiChatGenerate = async (overridePrompt?: string) => {
+    const prompt = (overridePrompt ?? aiPrompt).trim();
+    if (!prompt) {
+      setAiError("Describe what to create first.");
+      return;
+    }
+    if (aiCreditsUsed >= 3) {
+      setAiError("AI credit limit reached (3/3). Reset credits from New Chat or upgrade later.");
+      return;
+    }
+
+    setAiBusy(true);
+    setAiError("");
+    setAiMessages((previous) => [
+      ...previous,
+      { id: makeId(), role: "user", text: `[${aiFormat}] ${prompt}` },
+    ]);
+    setStatusMessage(`Generating ${aiFormat}…`);
+
+    try {
+      if (aiFormat === "document") {
+        const response = await fetch("/api/docs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            canvasName,
+            prompt: aiGitContext
+              ? `${prompt}\n\nGit context / repo notes:\n${aiGitContext}`
+              : prompt,
+            existingNotes: documentNotes,
+            architectureSummary:
+              elements.length > 0 ? summarizeCanvasArchitecture(elements, canvasName) : "",
+            focus: "Document",
+          }),
+        });
+        const data = (await response.json()) as { markdown?: string; error?: string };
+        if (!response.ok || !data.markdown) {
+          setAiError(data.error ?? "Could not generate document.");
+          return;
+        }
+        setDocumentNotes(data.markdown);
+        setViewMode((previous) => (previous === "canvas" ? "both" : previous));
+        setAiMessages((previous) => [
+          ...previous,
+          {
+            id: makeId(),
+            role: "assistant",
+            text: "Document written into the Document pane.",
+          },
+        ]);
+        consumeAiCredit();
+        setAiPrompt("");
+        setStatusMessage("Document generated");
+        return;
+      }
+
+      const response = await fetch("/api/diagram", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "text",
+          format: aiFormat,
+          prompt: aiGitContext
+            ? `${prompt}\n\nAdditional context from Git/repo notes:\n${aiGitContext}`
+            : prompt,
+        }),
+      });
+      const data = (await response.json()) as { mermaid?: string; error?: string };
+      if (!response.ok || !data.mermaid) {
+        setAiError(data.error ?? "Could not generate diagram.");
+        return;
+      }
+
+      const mermaidCode = canonicalizeFlowchart(normalizeMermaidCode(data.mermaid));
+      if (!mermaidCode) {
+        setAiError("Generated Mermaid was empty.");
+        return;
+      }
+
+      const diagramSrc = await renderMermaidToImageUrl(mermaidCode);
+      const canRenderDiagram = await new Promise<boolean>((resolve) => {
+        const image = new window.Image();
+        image.onload = () => resolve(true);
+        image.onerror = () => resolve(false);
+        image.src = diagramSrc;
+      });
+
+      if (canRenderDiagram) {
+        let origin = { x: 80, y: 100 };
+        setElements((previous) => {
+          const framed = buildFramedDiagramElements(
+            diagramSrc,
+            `${aiFormat} diagram`,
+            previous,
+          );
+          origin = framed.origin;
+          return [...previous, ...framed.elements];
+        });
+        setPan({ x: 80 - origin.x, y: 80 - origin.y });
+        setViewMode((previous) => (previous === "document" ? "both" : previous));
+        setAiMessages((previous) => [
+          ...previous,
+          {
+            id: makeId(),
+            role: "assistant",
+            text: `${aiFormat} diagram added in a free area (separated from existing content).`,
+          },
+        ]);
+        consumeAiCredit();
+        setAiPrompt("");
+        setStatusMessage(`${aiFormat} diagram generated`);
+      } else {
+        setElements((previous) => {
+          const notePoint = findFreeDiagramPoint(previous, 420, 160, { x: 80, y: 100 });
+          return [
+            ...previous,
+            {
+              id: makeId(),
+              kind: "text",
+              point: notePoint,
+              value: `Mermaid render failed. Raw output:\n${mermaidCode}`,
+              color: strokeColor,
+              opacity: strokeOpacity,
+            },
+          ];
+        });
+        setAiError("Diagram text generated, but rendering failed.");
+      }
+    } catch (error) {
+      setAiError(`Generation failed: ${String(error)}`);
+    } finally {
+      setAiBusy(false);
     }
   };
 
@@ -1296,23 +2012,83 @@ function BoardCanvas() {
   };
 
   const insertDiagramTemplate = (template: DiagramTemplate) => {
-    const origin = { x: 80 - pan.x, y: 100 - pan.y };
-    const built = template.build(origin) as CanvasElement[];
-    setElements((previous) => [...previous, ...built]);
+    const built = template.build({ x: 0, y: 0 }) as CanvasElement[];
+    const union = getElementsUnionBounds(built);
+    const width = Math.max(280, union?.width ?? 480);
+    const height = Math.max(200, union?.height ?? 320);
+    let free = { x: 80, y: 100 };
+    setElements((previous) => {
+      free = findFreeDiagramPoint(previous, width + 48, height + 64, {
+        x: 80,
+        y: 100,
+      });
+      const dx = free.x - (union?.x ?? 0) + 24;
+      const dy = free.y - (union?.y ?? 0) + 40;
+      const placed = offsetCanvasElements(built, dx, dy);
+      const placedUnion = getElementsUnionBounds(placed);
+      const framePad = 20;
+      const frame: ShapeElement | null = placedUnion
+        ? {
+            id: makeId(),
+            kind: "shape",
+            tool: "frame",
+            start: {
+              x: placedUnion.x - framePad,
+              y: placedUnion.y - framePad - 28,
+            },
+            end: {
+              x: placedUnion.x + placedUnion.width + framePad,
+              y: placedUnion.y + placedUnion.height + framePad,
+            },
+            color: "#818cf8",
+            strokeWidth: 2,
+            opacity: 1,
+          }
+        : null;
+      const title: TextElement = {
+        id: makeId(),
+        kind: "text",
+        point: {
+          x: (placedUnion?.x ?? free.x) - framePad + 8,
+          y: (placedUnion?.y ?? free.y) - framePad - 22,
+        },
+        value: template.title,
+        color: "#4338ca",
+        opacity: 1,
+      };
+      return [...previous, ...(frame ? [frame, title] : [title]), ...placed];
+    });
+    setPan({ x: 80 - free.x, y: 80 - free.y });
     setCanvasName((previous) =>
       previous === "Untitled canvas" ? template.title : previous,
     );
     setShowCatalogPanel(false);
     setShowExtras(false);
     setShowIconsPanel(false);
-    setStatusMessage(`Inserted template: ${template.title}`);
+    setStatusMessage(`Inserted template: ${template.title} (auto-spaced)`);
   };
 
-  const handleInsertStarter = (kind: "flowchart" | "architecture") => {
-    const template =
-      kind === "flowchart"
-        ? DIAGRAM_TEMPLATES.find((item) => item.id === "flow-basic")
-        : DIAGRAM_TEMPLATES.find((item) => item.id === "microservices");
+  const handleSeparateOverlappingDiagrams = () => {
+    setElements((previous) => {
+      const next = separateOverlappingDiagrams(previous);
+      const changed = next.some((item, index) => {
+        const before = previous[index];
+        if (!before || item.kind !== "image" || before.kind !== "image") return false;
+        return item.point.x !== before.point.x || item.point.y !== before.point.y;
+      });
+      window.setTimeout(() => {
+        setStatusMessage(
+          changed
+            ? "Separated overlapping diagrams with spacing"
+            : "No overlapping diagrams found",
+        );
+      }, 0);
+      return changed ? next : previous;
+    });
+  };
+
+  const handleInsertStarter = (templateId: string) => {
+    const template = DIAGRAM_TEMPLATES.find((item) => item.id === templateId);
     if (template) {
       insertDiagramTemplate(template);
     }
@@ -1527,13 +2303,6 @@ function BoardCanvas() {
       setStatusMessage("Canvas is already empty");
       return;
     }
-    const confirmed = window.confirm(
-      `Clear the entire canvas?\n\nThis will remove all ${elements.length} element${elements.length === 1 ? "" : "s"}.`,
-    );
-    if (!confirmed) {
-      setStatusMessage("Clear cancelled");
-      return;
-    }
     setElements([]);
     setDraftElement(null);
     setPendingImagePoint(null);
@@ -1567,45 +2336,39 @@ function BoardCanvas() {
     }
 
     if (activeTool === "text") {
-      const value = window.prompt("Enter text");
-      if (!value?.trim()) {
-        setStatusMessage("Text cancelled");
-        return;
-      }
+      const id = makeId();
       setElements((previous) => [
         ...previous,
         {
-          id: makeId(),
+          id,
           kind: "text",
           point,
-          value: value.trim(),
+          value: "",
           color: strokeColor,
           opacity: strokeOpacity,
         },
       ]);
-      setStatusMessage("Text added");
+      setInlineEdit({ id, kind: "text", value: "" });
+      setStatusMessage("Type text on the canvas");
       return;
     }
 
     if (activeTool === "note") {
-      const value = window.prompt("Sticky note text", "Note");
-      if (value === null) {
-        setStatusMessage("Sticky note cancelled");
-        return;
-      }
+      const id = makeId();
       setElements((previous) => [
         ...previous,
         {
-          id: makeId(),
+          id,
           kind: "note",
           point,
           width: 168,
           height: 120,
-          value: value.trim() || "Note",
+          value: "",
           color: noteColor,
         },
       ]);
-      setStatusMessage("Sticky note added");
+      setInlineEdit({ id, kind: "note", value: "" });
+      setStatusMessage("Type sticky note on the canvas");
       return;
     }
 
@@ -2027,32 +2790,656 @@ function BoardCanvas() {
 
   return (
     <div className={`${styles.page} ${resolvedTheme === "dark" ? styles.pageDark : ""}`}>
-      <aside className={styles.sideControl}>
-        <button
-          type="button"
-          className={styles.iconButton}
-          aria-label="Back to workspace"
-          title="Back to workspace"
-          onClick={() => router.push("/")}
-        >
-          ←
-        </button>
-        <button
-          type="button"
-          ref={menuButtonRef}
-          className={`${styles.iconButton} ${menuOpen ? styles.toolButtonActive : ""}`}
-          aria-label={menuOpen ? "Close menu" : "Open menu"}
-          onClick={() => {
-            setMenuOpen((previous) => !previous);
-            setShowPreferences(false);
-          }}
-        >
-          ☰
-        </button>
+      <header className={styles.topNav} aria-label="Board navigation">
+        <div className={styles.topNavBrand}>
+          <button
+            type="button"
+            className={styles.topNavLogo}
+            aria-label="Back to workspace"
+            title="Back to workspace"
+            onClick={() => router.push("/")}
+          >
+            <svg viewBox="0 0 24 24" className={styles.topNavLogoSvg} aria-hidden>
+              <path d="M4 11.5 12 5l8 6.5" />
+              <path d="M7 10.5V19h10v-8.5" />
+            </svg>
+          </button>
+          <h1 className={styles.topNavTitle}>{canvasName}</h1>
+        </div>
+        <div className={styles.viewModeToggle} role="tablist" aria-label="View mode">
+          {(
+            [
+              ["document", "Document"],
+              ["both", "Both"],
+              ["canvas", "Canvas"],
+            ] as const
+          ).map(([mode, label]) => (
+            <button
+              key={mode}
+              type="button"
+              role="tab"
+              aria-selected={viewMode === mode}
+              className={`${styles.viewModeButton} ${
+                viewMode === mode ? styles.viewModeButtonActive : ""
+              }`}
+              onClick={() => setViewMode(mode)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className={styles.topNavSpacer} aria-hidden />
+      </header>
+
+      <aside className={styles.sidebarRail} aria-label="Feature sidebar">
+        <div className={styles.sidebarRailGroup}>
+          {(
+            [
+              ["tools", "Drawing tools", "tools"],
+              ["insert", "Insert & libraries", "insert"],
+              ["ai", "Generate with AI", "ai"],
+              ["search", "Search & commands", "search"],
+              ["share", "Share & view", "share"],
+              ["file", "File & settings", "file"],
+            ] as const
+          ).map(([step, label, glyph]) => (
+            <button
+              key={step}
+              type="button"
+              className={`${styles.sidebarRailBtn} ${
+                (step === "ai" ? showAiChat : sidebarStep === step)
+                  ? styles.sidebarRailBtnActive
+                  : ""
+              } ${step === "ai" ? styles.sidebarRailBtnAccent : ""}`}
+              aria-label={label}
+              title={label}
+              aria-pressed={sidebarStep === step}
+              onClick={() => toggleSidebarStep(step)}
+            >
+              {sidebarGlyph(glyph)}
+            </button>
+          ))}
+        </div>
+        <div className={styles.sidebarRailSpacer} />
+        <div className={styles.sidebarRailGroup}>
+          <button
+            type="button"
+            className={styles.sidebarRailBtn}
+            aria-label="Back to workspace"
+            title="Back to workspace"
+            onClick={() => router.push("/")}
+          >
+            {sidebarGlyph("home")}
+          </button>
+        </div>
       </aside>
 
-      {menuOpen && (
-        <nav ref={menuPanelRef} className={styles.menuPanel} aria-label="Main menu">
+      {sidebarStep === "tools" && (
+        <aside className={styles.sidebarStepPanel} aria-label="Drawing tools">
+          <div className={styles.sidebarStepHeader}>
+            <div>
+              <h3>Tools</h3>
+              <p>Select a drawing tool</p>
+            </div>
+            <button
+              type="button"
+              className={styles.menuClose}
+              onClick={() => setSidebarStep(null)}
+              aria-label="Close tools"
+            >
+              ×
+            </button>
+          </div>
+          <div className={styles.sidebarStepBody}>
+            <div className={styles.sidebarToolGrid}>
+              {MAIN_TOOLS.map((tool) => (
+                <button
+                  key={tool.id}
+                  type="button"
+                  className={`${styles.sidebarToolBtn} ${
+                    activeTool === tool.id ? styles.sidebarToolBtnActive : ""
+                  }`}
+                  title={tool.label}
+                  onClick={() => {
+                    setActiveTool(tool.id);
+                    setShowExtras(false);
+                    setStatusMessage(`${tool.label} tool selected`);
+                  }}
+                >
+                  {toolIcon(tool.id)}
+                  {tool.keyHint ? <span className={styles.keyHint}>{tool.keyHint}</span> : null}
+                </button>
+              ))}
+              <button
+                type="button"
+                className={`${styles.sidebarToolBtn} ${
+                  activeTool === "eraser" ? styles.sidebarToolBtnActive : ""
+                }`}
+                title="Eraser — click objects, or click again to clear all"
+                onClick={() => {
+                  if (activeTool === "eraser") {
+                    clearEntireCanvas();
+                    return;
+                  }
+                  setActiveTool("eraser");
+                  setShowExtras(false);
+                  setPendingLibraryIcon(null);
+                  setStatusMessage("Eraser ready — click objects, or click Eraser again to clear all");
+                }}
+              >
+                {toolIcon("eraser")}
+                <span className={styles.keyHint}>0</span>
+              </button>
+            </div>
+            <div className={styles.sidebarActionList}>
+              {EXTRA_TOOLS.map((tool) => (
+                <button
+                  key={tool.id}
+                  type="button"
+                  className={`${styles.sidebarActionBtn} ${
+                    activeTool === tool.id ? styles.sidebarActionBtnActive : ""
+                  }`}
+                  onClick={() => {
+                    setActiveTool(tool.id);
+                    setPendingLibraryIcon(null);
+                    setStatusMessage(`${tool.label} selected`);
+                  }}
+                >
+                  <span className={styles.sidebarActionIcon}>{toolIcon(tool.id)}</span>
+                  <span className={styles.sidebarActionText}>
+                    <strong>{tool.label}</strong>
+                    <small>Shortcut {tool.shortcut}</small>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </aside>
+      )}
+
+      {sidebarStep === "insert" && (
+        <aside className={styles.sidebarStepPanel} aria-label="Insert features">
+          <div className={styles.sidebarStepHeader}>
+            <div>
+              <h3>Insert</h3>
+              <p>Catalogs, icons & starters</p>
+            </div>
+            <button
+              type="button"
+              className={styles.menuClose}
+              onClick={() => setSidebarStep(null)}
+              aria-label="Close insert"
+            >
+              ×
+            </button>
+          </div>
+          <div className={styles.sidebarStepBody}>
+            <div className={styles.sidebarActionList}>
+              <button
+                type="button"
+                className={`${styles.sidebarActionBtn} ${
+                  showCatalogPanel ? styles.sidebarActionBtnActive : ""
+                }`}
+                onClick={() => {
+                  setShowCatalogPanel((previous) => !previous);
+                  setShowIconsPanel(false);
+                }}
+              >
+                <span className={styles.sidebarActionIcon}>{menuGlyph("catalog")}</span>
+                <span className={styles.sidebarActionText}>
+                  <strong>Diagram catalog</strong>
+                  <small>Flow, ERD, cloud & more</small>
+                </span>
+              </button>
+              <button
+                type="button"
+                className={`${styles.sidebarActionBtn} ${
+                  showIconsPanel ? styles.sidebarActionBtnActive : ""
+                }`}
+                onClick={() => {
+                  setShowIconsPanel((previous) => !previous);
+                  setShowCatalogPanel(false);
+                }}
+              >
+                <span className={styles.sidebarActionIcon}>{menuGlyph("icons")}</span>
+                <span className={styles.sidebarActionText}>
+                  <strong>Icon library</strong>
+                  <small>Tech, cloud & custom icons</small>
+                </span>
+              </button>
+              <button
+                type="button"
+                className={styles.sidebarActionBtn}
+                onClick={() => handleInsertStarter("flow-cicd")}
+              >
+                <span className={styles.sidebarActionIcon}>{menuGlyph("flow")}</span>
+                <span className={styles.sidebarActionText}>
+                  <strong>CI/CD flowchart</strong>
+                  <small>Release gates &amp; rollback paths</small>
+                </span>
+              </button>
+              <button
+                type="button"
+                className={styles.sidebarActionBtn}
+                onClick={() => handleInsertStarter("docker-compose")}
+              >
+                <span className={styles.sidebarActionIcon}>{menuGlyph("arch")}</span>
+                <span className={styles.sidebarActionText}>
+                  <strong>Docker Compose</strong>
+                  <small>Local multi-service stack</small>
+                </span>
+              </button>
+              <button
+                type="button"
+                className={styles.sidebarActionBtn}
+                onClick={() => handleInsertStarter("terraform-modules")}
+              >
+                <span className={styles.sidebarActionIcon}>{menuGlyph("arch")}</span>
+                <span className={styles.sidebarActionText}>
+                  <strong>Terraform modules</strong>
+                  <small>Network · compute · data IaC</small>
+                </span>
+              </button>
+              <button
+                type="button"
+                className={styles.sidebarActionBtn}
+                onClick={() => handleInsertStarter("jenkins-pipeline")}
+              >
+                <span className={styles.sidebarActionIcon}>{menuGlyph("flow")}</span>
+                <span className={styles.sidebarActionText}>
+                  <strong>Jenkins pipeline</strong>
+                  <small>Build · test · deploy stages</small>
+                </span>
+              </button>
+              <button
+                type="button"
+                className={styles.sidebarActionBtn}
+                onClick={() => handleInsertStarter("prometheus-grafana")}
+              >
+                <span className={styles.sidebarActionIcon}>{menuGlyph("arch")}</span>
+                <span className={styles.sidebarActionText}>
+                  <strong>Prometheus + Grafana</strong>
+                  <small>Metrics, alerts &amp; dashboards</small>
+                </span>
+              </button>
+              <button
+                type="button"
+                className={styles.sidebarActionBtn}
+                onClick={() => handleInsertStarter("aws-three-tier")}
+              >
+                <span className={styles.sidebarActionIcon}>{menuGlyph("arch")}</span>
+                <span className={styles.sidebarActionText}>
+                  <strong>AWS three-tier</strong>
+                  <small>CloudFront · EC2 · RDS</small>
+                </span>
+              </button>
+              <button
+                type="button"
+                className={styles.sidebarActionBtn}
+                onClick={() => handleInsertStarter("gcp-gke")}
+              >
+                <span className={styles.sidebarActionIcon}>{menuGlyph("arch")}</span>
+                <span className={styles.sidebarActionText}>
+                  <strong>GCP GKE</strong>
+                  <small>Load balancer · cluster · SQL</small>
+                </span>
+              </button>
+              <button
+                type="button"
+                className={styles.sidebarActionBtn}
+                onClick={() => handleInsertStarter("azure-aks")}
+              >
+                <span className={styles.sidebarActionIcon}>{menuGlyph("arch")}</span>
+                <span className={styles.sidebarActionText}>
+                  <strong>Azure AKS</strong>
+                  <small>Front Door · AKS · Key Vault</small>
+                </span>
+              </button>
+              <button
+                type="button"
+                className={styles.sidebarActionBtn}
+                onClick={() => handleInsertStarter("flow-basic")}
+              >
+                <span className={styles.sidebarActionIcon}>{menuGlyph("flow")}</span>
+                <span className={styles.sidebarActionText}>
+                  <strong>Flowchart starter</strong>
+                  <small>Quick decision flow</small>
+                </span>
+              </button>
+              <button
+                type="button"
+                className={styles.sidebarActionBtn}
+                onClick={() => handleInsertStarter("microservices")}
+              >
+                <span className={styles.sidebarActionIcon}>{menuGlyph("arch")}</span>
+                <span className={styles.sidebarActionText}>
+                  <strong>Architecture starter</strong>
+                  <small>Services &amp; data layout</small>
+                </span>
+              </button>
+            </div>
+          </div>
+        </aside>
+      )}
+
+      {showAiChat && (
+        <aside className={styles.aiChatPanel} aria-label="AI New Chat">
+          <div className={styles.aiChatHeader}>
+            <div>
+              <h3>New Chat</h3>
+              <p>Create diagrams or docs with Mistral</p>
+            </div>
+            <div className={styles.aiChatHeaderActions}>
+              <button
+                type="button"
+                className={styles.iconButton}
+                title="New chat"
+                onClick={() => {
+                  setAiMessages([]);
+                  setAiPrompt("");
+                  setAiError("");
+                  setAiGitContext("");
+                }}
+              >
+                +
+              </button>
+              <button
+                type="button"
+                className={styles.iconButton}
+                title="Reset AI credits"
+                onClick={() => {
+                  setAiCreditsUsed(0);
+                  window.localStorage.setItem("draw-app-ai-credits-used", "0");
+                }}
+              >
+                ↺
+              </button>
+              <button
+                type="button"
+                className={styles.menuClose}
+                onClick={() => setShowAiChat(false)}
+                aria-label="Close AI chat"
+              >
+                ×
+              </button>
+            </div>
+          </div>
+
+          <div className={styles.aiChatBody}>
+            <p className={styles.aiChatSectionLabel}>What would you like to create?</p>
+            <div className={styles.aiCreateGrid}>
+              {(
+                [
+                  ["architecture", "Architecture Diagram", "🏛"],
+                  ["flowchart", "Flow Chart", "🔀"],
+                  ["erd", "Entity Relationship", "🗄"],
+                  ["sequence", "Sequence Diagram", "↕"],
+                  ["bpmn", "BPMN Diagram", "⟳"],
+                  ["document", "Document", "📄"],
+                ] as const
+              ).map(([id, label, icon]) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={`${styles.aiCreateCard} ${
+                    aiFormat === id ? styles.aiCreateCardActive : ""
+                  }`}
+                  onClick={() => {
+                    setAiFormat(id);
+                    setAiError("");
+                    if (!aiPrompt.trim()) {
+                      const starters: Record<AiCreateFormat, string> = {
+                        architecture:
+                          "Design a microservices architecture with API gateway, auth, orders, payments, and Postgres",
+                        flowchart:
+                          "Create a CI/CD release flowchart with build, test, security scan, staging, and production gates",
+                        erd: "Model a SaaS billing ERD with organizations, subscriptions, invoices, and usage events",
+                        sequence:
+                          "Sequence for user login through web app, API, auth service, and database",
+                        bpmn: "BPMN-style order fulfillment process across Sales, Warehouse, and Shipping lanes",
+                        document:
+                          "Write architecture documentation for the current canvas (or a proposed cloud platform)",
+                      };
+                      setAiPrompt(starters[id]);
+                    }
+                  }}
+                >
+                  <span className={styles.aiCreateIcon}>{icon}</span>
+                  <strong>{label}</strong>
+                </button>
+              ))}
+            </div>
+
+            <p className={styles.aiChatSectionLabel}>Already have something to start with?</p>
+            <div className={styles.aiStartRow}>
+              <button
+                type="button"
+                className={styles.aiStartChip}
+                onClick={() => {
+                  setShowCatalogPanel(true);
+                  setShowIconsPanel(false);
+                  setStatusMessage("Pick a catalog template to seed the canvas");
+                }}
+              >
+                Template
+              </button>
+              <button
+                type="button"
+                className={styles.aiStartChip}
+                onClick={() => document.getElementById("canvas-open-file-input")?.click()}
+              >
+                File
+              </button>
+              <button
+                type="button"
+                className={styles.aiStartChip}
+                onClick={() => {
+                  const repo = window.prompt(
+                    "Git repo or notes to include as context (e.g. org/repo + branch)",
+                    aiGitContext || "org/repo @ main",
+                  );
+                  if (repo === null) return;
+                  setAiGitContext(repo.trim());
+                  setStatusMessage(repo.trim() ? "Git context attached to AI chat" : "Git context cleared");
+                }}
+              >
+                Git Repo
+              </button>
+            </div>
+            <button
+              type="button"
+              className={styles.aiSeparateBtn}
+              onClick={handleSeparateOverlappingDiagrams}
+            >
+              Separate overlapping diagrams
+            </button>
+            {aiGitContext ? (
+              <p className={styles.aiGitHint}>Git context: {aiGitContext}</p>
+            ) : null}
+
+            <div className={styles.aiCreditsBar}>
+              <div className={styles.aiCreditsTrack}>
+                <span style={{ width: `${Math.min(100, (aiCreditsUsed / 3) * 100)}%` }} />
+              </div>
+              <p>
+                {Math.min(aiCreditsUsed, 3)} of 3 AI credits.{" "}
+                <button
+                  type="button"
+                  className={styles.aiUpgradeLink}
+                  onClick={() => {
+                    setAiCreditsUsed(0);
+                    window.localStorage.setItem("draw-app-ai-credits-used", "0");
+                  }}
+                >
+                  Reset
+                </button>
+              </p>
+            </div>
+
+            {aiMessages.length > 0 ? (
+              <div className={styles.aiMessageList}>
+                {aiMessages.map((message) => (
+                  <div
+                    key={message.id}
+                    className={`${styles.aiMessage} ${
+                      message.role === "user" ? styles.aiMessageUser : styles.aiMessageAssistant
+                    }`}
+                  >
+                    {message.text}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            {aiError ? <p className={styles.generateError}>{aiError}</p> : null}
+          </div>
+
+          <div className={styles.aiComposer}>
+            <button
+              type="button"
+              className={styles.aiComposerPlus}
+              title="Attach template / file / git"
+              onClick={() => {
+                setShowCatalogPanel(true);
+              }}
+            >
+              +
+            </button>
+            <textarea
+              className={styles.aiComposerInput}
+              value={aiPrompt}
+              onChange={(event) => setAiPrompt(event.target.value)}
+              placeholder="Describe what to create or edit. Press / for format options."
+              rows={3}
+              onKeyDown={(event) => {
+                if (event.key === "/" && !aiPrompt) {
+                  event.preventDefault();
+                  setAiPrompt(`/${aiFormat} `);
+                }
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  void handleAiChatGenerate();
+                }
+              }}
+            />
+            <button
+              type="button"
+              className={styles.aiComposerSend}
+              disabled={aiBusy}
+              onClick={() => void handleAiChatGenerate()}
+              aria-label="Send"
+            >
+              {aiBusy ? "…" : "↑"}
+            </button>
+          </div>
+        </aside>
+      )}
+
+      {sidebarStep === "search" && (
+        <aside className={styles.sidebarStepPanel} aria-label="Search features">
+          <div className={styles.sidebarStepHeader}>
+            <div>
+              <h3>Search</h3>
+              <p>Find content & run commands</p>
+            </div>
+            <button
+              type="button"
+              className={styles.menuClose}
+              onClick={() => setSidebarStep(null)}
+              aria-label="Close search"
+            >
+              ×
+            </button>
+          </div>
+          <div className={styles.sidebarStepBody}>
+            <div className={styles.sidebarActionList}>
+              <button
+                type="button"
+                className={styles.sidebarActionBtn}
+                onClick={() => {
+                  setShowFindPanel(true);
+                  setFindQuery("");
+                  setSidebarStep(null);
+                }}
+              >
+                <span className={styles.sidebarActionIcon}>{sidebarGlyph("search")}</span>
+                <span className={styles.sidebarActionText}>
+                  <strong>Find on canvas</strong>
+                  <small>Ctrl+F — search notes & labels</small>
+                </span>
+              </button>
+              <button
+                type="button"
+                className={styles.sidebarActionBtn}
+                onClick={() => {
+                  setShowCommandPalette(true);
+                  setCommandQuery("");
+                  setSidebarStep(null);
+                }}
+              >
+                <span className={styles.sidebarActionIcon}>{sidebarGlyph("command")}</span>
+                <span className={styles.sidebarActionText}>
+                  <strong>Command palette</strong>
+                  <small>Ctrl+/ — jump to any action</small>
+                </span>
+              </button>
+            </div>
+          </div>
+        </aside>
+      )}
+
+      {sidebarStep === "share" && (
+        <aside className={styles.sidebarStepPanel} aria-label="Share features">
+          <div className={styles.sidebarStepHeader}>
+            <div>
+              <h3>Share</h3>
+              <p>Collaborate & reset view</p>
+            </div>
+            <button
+              type="button"
+              className={styles.menuClose}
+              onClick={() => setSidebarStep(null)}
+              aria-label="Close share"
+            >
+              ×
+            </button>
+          </div>
+          <div className={styles.sidebarStepBody}>
+            <div className={styles.sidebarActionList}>
+              <button
+                type="button"
+                className={styles.sidebarActionBtn}
+                onClick={() => {
+                  void handleLiveCollaboration();
+                }}
+              >
+                <span className={styles.sidebarActionIcon}>{sidebarGlyph("share")}</span>
+                <span className={styles.sidebarActionText}>
+                  <strong>Live collaboration</strong>
+                  <small>Copy a shareable room link</small>
+                </span>
+              </button>
+              <button
+                type="button"
+                className={styles.sidebarActionBtn}
+                onClick={() => {
+                  setPan({ x: 0, y: 0 });
+                  setStatusMessage("View centered");
+                }}
+              >
+                <span className={styles.sidebarActionIcon}>{sidebarGlyph("center")}</span>
+                <span className={styles.sidebarActionText}>
+                  <strong>Reset view</strong>
+                  <small>Center pan on the canvas</small>
+                </span>
+              </button>
+            </div>
+          </div>
+        </aside>
+      )}
+
+      {sidebarStep === "file" && (
+        <nav ref={menuPanelRef} className={styles.menuPanel} style={{ left: 56 }} aria-label="Main menu">
           <div className={styles.menuHeader}>
             <div>
               <h3>Board menu</h3>
@@ -2062,6 +3449,7 @@ function BoardCanvas() {
               type="button"
               className={styles.menuClose}
               onClick={() => {
+                setSidebarStep(null);
                 setMenuOpen(false);
                 setShowPreferences(false);
               }}
@@ -2078,6 +3466,7 @@ function BoardCanvas() {
             onClick={() => {
               document.getElementById("canvas-open-file-input")?.click();
               setMenuOpen(false);
+              setSidebarStep(null);
             }}
           >
             <span className={styles.menuItemLeft}>Open</span>
@@ -2089,6 +3478,7 @@ function BoardCanvas() {
             onClick={() => {
               handleSave();
               setMenuOpen(false);
+              setSidebarStep(null);
             }}
           >
             <span className={styles.menuItemLeft}>Save JSON</span>
@@ -2099,6 +3489,7 @@ function BoardCanvas() {
             onClick={() => {
               void handleExportImage();
               setMenuOpen(false);
+              setSidebarStep(null);
             }}
           >
             <span className={styles.menuItemLeft}>Export image</span>
@@ -2110,6 +3501,7 @@ function BoardCanvas() {
             onClick={() => {
               void handleLiveCollaboration();
               setMenuOpen(false);
+              setSidebarStep(null);
             }}
           >
             <span className={styles.menuItemLeft}>Live collaboration</span>
@@ -2123,6 +3515,7 @@ function BoardCanvas() {
               setShowCommandPalette(true);
               setCommandQuery("");
               setMenuOpen(false);
+              setSidebarStep(null);
             }}
           >
             <span className={styles.menuItemLeft}>Command palette</span>
@@ -2135,6 +3528,7 @@ function BoardCanvas() {
               setShowFindPanel(true);
               setFindQuery("");
               setMenuOpen(false);
+              setSidebarStep(null);
             }}
           >
             <span className={styles.menuItemLeft}>Find on canvas</span>
@@ -2146,6 +3540,7 @@ function BoardCanvas() {
             onClick={() => {
               clearEntireCanvas();
               setMenuOpen(false);
+              setSidebarStep(null);
             }}
           >
             <span className={styles.menuItemLeft}>Clear entire canvas</span>
@@ -2330,90 +3725,8 @@ function BoardCanvas() {
         </div>
       )}
 
-      <header className={styles.topToolbar} aria-label="Tools">
-        <button
-          type="button"
-          className={`${styles.iconButton} ${styles.lockButton} ${styles.lockActive}`}
-        >
-          {toolIcon("lock")}
-        </button>
-        {MAIN_TOOLS.map((tool) => (
-          <button
-            key={tool.id}
-            type="button"
-            className={`${styles.toolButton} ${
-              activeTool === tool.id ? styles.toolButtonActive : ""
-            }`}
-            title={tool.label}
-            onClick={() => {
-              setActiveTool(tool.id);
-              setShowExtras(false);
-              setMenuOpen(false);
-              setStatusMessage(`${tool.label} tool selected`);
-            }}
-          >
-            {toolIcon(tool.id)}
-            {tool.keyHint ? <span className={styles.keyHint}>{tool.keyHint}</span> : null}
-          </button>
-        ))}
-        <div className={styles.toolbarDivider} />
-        <button
-          type="button"
-          className={`${styles.toolButton} ${showCatalogPanel ? styles.toolButtonActive : ""}`}
-          title="Diagram catalog"
-          onClick={() => {
-            setShowCatalogPanel((previous) => !previous);
-            setShowIconsPanel(false);
-            setShowExtras(false);
-            setMenuOpen(false);
-          }}
-        >
-          {menuGlyph("catalog")}
-        </button>
-        <button
-          type="button"
-          className={`${styles.toolButton} ${showIconsPanel ? styles.toolButtonActive : ""}`}
-          title="Icon library"
-          onClick={() => {
-            setShowIconsPanel((previous) => !previous);
-            setShowCatalogPanel(false);
-            setShowExtras(false);
-            setMenuOpen(false);
-          }}
-        >
-          {menuGlyph("icons")}
-        </button>
-        <button
-          type="button"
-          ref={moreToolsButtonRef}
-          className={`${styles.toolButton} ${showExtras ? styles.toolButtonActive : ""}`}
-          title="More tools"
-          onClick={() => setShowExtras((previous) => !previous)}
-        >
-          {toolIcon("more")}
-        </button>
-        <button
-          type="button"
-          className={`${styles.toolButton} ${activeTool === "eraser" ? styles.toolButtonActive : ""}`}
-          title="Eraser — click objects, or open Clear all"
-          onClick={() => {
-            if (activeTool === "eraser") {
-              clearEntireCanvas();
-              return;
-            }
-            setActiveTool("eraser");
-            setShowExtras(false);
-            setPendingLibraryIcon(null);
-            setStatusMessage("Eraser ready — click objects, or click Eraser again to clear all");
-          }}
-        >
-          {toolIcon("eraser")}
-          <span className={styles.keyHint}>0</span>
-        </button>
-      </header>
-
       {showExtras && (
-        <section ref={extrasPanelRef} className={styles.extrasPanel}>
+        <section ref={extrasPanelRef} className={styles.extrasPanel} style={{ left: panelOffsetLeft }}>
           <div className={styles.extrasHeader}>
             <h3>More tools</h3>
             <p>Frames, notes, libraries &amp; AI</p>
@@ -2480,7 +3793,7 @@ function BoardCanvas() {
             <button
               type="button"
               className={styles.extrasItem}
-              onClick={() => handleInsertStarter("flowchart")}
+              onClick={() => handleInsertStarter("flow-basic")}
             >
               <span className={`${styles.extrasIconWrap} ${styles.extrasIconFlow}`}>
                 {menuGlyph("flow")}
@@ -2493,7 +3806,7 @@ function BoardCanvas() {
             <button
               type="button"
               className={styles.extrasItem}
-              onClick={() => handleInsertStarter("architecture")}
+              onClick={() => handleInsertStarter("microservices")}
             >
               <span className={`${styles.extrasIconWrap} ${styles.extrasIconArch}`}>
                 {menuGlyph("arch")}
@@ -2617,12 +3930,8 @@ function BoardCanvas() {
           ref={iconsPanelRef}
           className={styles.iconsPanel}
           style={{
-            left:
-              showCatalogPanel
-                ? 330
-                : showStylePanel || activeTool === "note"
-                  ? 190
-                  : 14,
+            right: showCatalogPanel ? 336 : 16,
+            left: "auto",
           }}
           aria-label="Icon library"
         >
@@ -2806,42 +4115,53 @@ function BoardCanvas() {
         </section>
       )}
 
-      <button
-        type="button"
-        className={styles.collabButton}
-        aria-label="Share collaboration link"
-        onClick={handleLiveCollaboration}
-      >
-        <svg viewBox="0 0 24 24" className={styles.topRightSvg} aria-hidden>
-          <circle cx="18" cy="5" r="2.4" />
-          <circle cx="6" cy="12" r="2.4" />
-          <circle cx="18" cy="19" r="2.4" />
-          <path d="M8.2 11 15.7 6.4M8.2 13 15.7 17.6" />
-        </svg>
-      </button>
-      <button
-        type="button"
-        className={styles.layoutButton}
-        aria-label="Reset pan to center"
-        onClick={() => {
-          setPan({ x: 0, y: 0 });
-          setStatusMessage("View centered");
-        }}
-      >
-        <svg viewBox="0 0 24 24" className={styles.topRightSvg} aria-hidden>
-          <rect x="4" y="4" width="16" height="16" rx="2" />
-          <path d="M12 8v8M8 12h8" />
-        </svg>
-      </button>
+      {(viewMode === "document" || viewMode === "both") && (
+        <section
+          className={`${styles.documentPane} ${
+            viewMode === "document" ? styles.documentPaneFull : ""
+          }`}
+          aria-label="Document"
+        >
+          <div className={styles.documentPaneHeader}>
+            <div className={styles.documentPaneHeaderTop}>
+              <div>
+                <h2>{canvasName}</h2>
+                <p>Architecture docs synced with this board</p>
+              </div>
+              <button
+                type="button"
+                className={styles.docsGenerateButton}
+                onClick={() => void handleGenerateDocsFromCanvas()}
+                disabled={isGeneratingDocs}
+                title="Generate documentation from canvas with Mistral"
+              >
+                {isGeneratingDocs ? "Generating…" : "Generate docs"}
+              </button>
+            </div>
+            {docsError ? <p className={styles.generateError}>{docsError}</p> : null}
+          </div>
+          <textarea
+            className={styles.documentEditor}
+            value={documentNotes}
+            onChange={(event) => setDocumentNotes(event.target.value)}
+            placeholder="Write your architecture notes, one-liner summary, and decisions here…"
+            spellCheck
+          />
+        </section>
+      )}
 
       <main
-        className={`${styles.canvasArea} ${showGrid ? "" : styles.canvasAreaNoGrid}`}
+        className={`${styles.canvasArea} ${showGrid ? "" : styles.canvasAreaNoGrid} ${
+          viewMode === "both" ? styles.canvasAreaSplit : ""
+        } ${viewMode === "document" ? styles.canvasAreaHidden : ""} ${
+          showAiChat ? styles.canvasAreaWithAi : ""
+        }`}
       >
         {showStylePanel && (
           <aside
             ref={propertiesPanelRef}
             className={styles.propertiesPanel}
-            style={{ left: menuOpen ? 280 : 14 }}
+            style={{ left: panelOffsetLeft }}
           >
             <div className={styles.propertiesHeader}>
               <p className={styles.propertyLabel}>Style</p>
@@ -2913,7 +4233,7 @@ function BoardCanvas() {
           <aside
             ref={propertiesPanelRef}
             className={styles.propertiesPanel}
-            style={{ left: menuOpen ? 280 : 14 }}
+            style={{ left: panelOffsetLeft }}
           >
             <div className={styles.propertiesHeader}>
               <p className={styles.propertyLabel}>Sticky note</p>
@@ -2943,7 +4263,7 @@ function BoardCanvas() {
                 ))}
               </div>
             </div>
-            <p className={styles.propertyLabel}>Click the canvas to place a sticky note.</p>
+            <p className={styles.propertyLabel}>Click the canvas, then type. Enter to save.</p>
           </aside>
         )}
 
@@ -2951,7 +4271,7 @@ function BoardCanvas() {
           <aside
             ref={propertiesPanelRef}
             className={styles.propertiesPanel}
-            style={{ left: menuOpen ? 280 : 14 }}
+            style={{ left: panelOffsetLeft }}
             aria-label="Eraser options"
           >
             <div className={styles.propertiesHeader}>
@@ -3019,17 +4339,48 @@ function BoardCanvas() {
             </filter>
           </defs>
           <g transform={`translate(${pan.x} ${pan.y})`}>
-            {elements.map((element) => (
+            {elements.map((element) =>
+              inlineEdit?.id === element.id ? null : (
               <g
                 key={`h-${element.id}`}
                 filter={highlightedId === element.id ? "url(#find-glow)" : undefined}
               >
                 {renderElement(element)}
               </g>
-            ))}
+              ),
+            )}
             {draftElement && renderElement({ ...draftElement, id: "draft-element" })}
           </g>
         </svg>
+        {inlineEdit && inlineEditStyle ? (
+          <textarea
+            ref={inlineEditRef}
+            className={`${styles.inlineTextEditor} ${
+              inlineEdit.kind === "note" ? styles.inlineNoteEditor : ""
+            }`}
+            style={inlineEditStyle}
+            value={inlineEdit.value}
+            placeholder={inlineEdit.kind === "note" ? "Sticky note…" : "Type text…"}
+            onChange={(event) =>
+              setInlineEdit((previous) =>
+                previous ? { ...previous, value: event.target.value } : previous,
+              )
+            }
+            onBlur={() => commitInlineEdit()}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                cancelInlineEdit();
+                return;
+              }
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                event.currentTarget.blur();
+              }
+            }}
+            onPointerDown={(event) => event.stopPropagation()}
+          />
+        ) : null}
         <input
           id="canvas-open-file-input"
           type="file"

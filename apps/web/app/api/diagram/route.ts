@@ -1,17 +1,50 @@
 import { NextResponse } from "next/server";
 
+type DiagramFormat =
+  | "architecture"
+  | "flowchart"
+  | "erd"
+  | "sequence"
+  | "bpmn"
+  | "document";
+
 type DiagramRequest = {
   mode?: "text" | "mermaid";
   prompt?: string;
+  format?: DiagramFormat;
 };
 
 type Provider = "mistral" | "openai";
+
+const FORMAT_INSTRUCTIONS: Record<Exclude<DiagramFormat, "document">, string> = {
+  architecture:
+    "Create a Mermaid flowchart TD architecture diagram with clear system/service boxes and labeled connections. Prefer subgraphs for layers (clients, services, data).",
+  flowchart:
+    "Create a Mermaid flowchart TD process diagram with decisions (Yes/No), start/end nodes, and clear step labels.",
+  erd:
+    "Create a Mermaid erDiagram with entities, attributes, and relationships (1:N, N:M) using realistic field names.",
+  sequence:
+    "Create a Mermaid sequenceDiagram with actors/participants and numbered-style message flow for a realistic interaction.",
+  bpmn:
+    "Create a Mermaid flowchart LR BPMN-style process with swimlane-like subgraphs (or clear role groups), start/end events, tasks, and gateways.",
+};
+
+function systemFor(mode: "text" | "mermaid", format?: DiagramFormat) {
+  if (mode === "mermaid") {
+    return "You are a Mermaid expert. Fix and improve the user's Mermaid diagram. Return ONLY valid Mermaid code with no markdown fences.";
+  }
+  if (format && format !== "document" && FORMAT_INSTRUCTIONS[format]) {
+    return `You are a diagram assistant. ${FORMAT_INSTRUCTIONS[format]} Return ONLY valid Mermaid code with no markdown fences and no commentary.`;
+  }
+  return "You are a diagram assistant. Convert the user request into a clear Mermaid flowchart. Return ONLY valid Mermaid code with no markdown fences.";
+}
 
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as DiagramRequest;
     const mode = body.mode ?? "text";
     const prompt = body.prompt?.trim();
+    const format = body.format;
 
     if (!prompt) {
       return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
@@ -33,10 +66,11 @@ export async function POST(request: Request) {
       );
     }
 
-    const systemInstruction =
-      mode === "mermaid"
-        ? "You are a Mermaid expert. Fix and improve the user's Mermaid diagram. Return ONLY valid Mermaid code with no markdown fences."
-        : "You are a diagram assistant. Convert the user request into a clear Mermaid flowchart. Return ONLY valid Mermaid code with no markdown fences.";
+    const systemInstruction = systemFor(mode, format);
+    const userContent =
+      format && format !== "document"
+        ? `Format: ${format}\n\nUser request:\n${prompt}`
+        : prompt;
 
     const response =
       provider === "mistral"
@@ -51,7 +85,7 @@ export async function POST(request: Request) {
               temperature: 0.2,
               messages: [
                 { role: "system", content: systemInstruction },
-                { role: "user", content: prompt },
+                { role: "user", content: userContent },
               ],
             }),
           })
@@ -65,7 +99,7 @@ export async function POST(request: Request) {
               model: "gpt-4.1-mini",
               input: [
                 { role: "system", content: [{ type: "text", text: systemInstruction }] },
-                { role: "user", content: [{ type: "text", text: prompt }] },
+                { role: "user", content: [{ type: "text", text: userContent }] },
               ],
             }),
           });
@@ -78,7 +112,10 @@ export async function POST(request: Request) {
       );
     }
 
-    const json = (await response.json()) as any;
+    const json = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+      output_text?: string;
+    };
     const mermaid =
       provider === "mistral"
         ? String(json?.choices?.[0]?.message?.content ?? "").trim()
@@ -91,7 +128,7 @@ export async function POST(request: Request) {
       );
     }
 
-    return NextResponse.json({ mermaid });
+    return NextResponse.json({ mermaid, format: format ?? "flowchart", provider });
   } catch (error) {
     return NextResponse.json(
       { error: "Unexpected server error", details: String(error) },

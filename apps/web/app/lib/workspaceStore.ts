@@ -16,6 +16,7 @@ export type BoardSnapshot = {
   pan: { x: number; y: number };
   backgroundColor: string;
   canvasName?: string;
+  documentNotes?: string;
 };
 
 export type WorkspaceFile = {
@@ -337,6 +338,259 @@ export function updateMcp(config: Partial<McpConnectionState>) {
   return state.mcp;
 }
 
+export function updateProfile(config: Partial<{ teamName: string; author: string }>) {
+  const state = readState();
+  if (typeof config.teamName === "string" && config.teamName.trim()) {
+    state.teamName = config.teamName.trim();
+  }
+  if (typeof config.author === "string" && config.author.trim()) {
+    state.author = config.author.trim();
+  }
+  writeState(state);
+  return { teamName: state.teamName, author: state.author };
+}
+
+export type McpClientId =
+  | "claude-code"
+  | "claude-ai"
+  | "codex"
+  | "vscode"
+  | "cursor"
+  | "copilot";
+
+export type McpClientSetup = {
+  id: McpClientId;
+  name: string;
+  subtitle: string;
+  runLabel: string;
+  command?: string;
+  configJson?: string;
+  configPath?: string;
+  steps: string[];
+};
+
+export function getMcpProjectRoot() {
+  if (typeof window === "undefined") {
+    return "D:/Excalidraw-DrawApp-practice-w-22";
+  }
+  const stored = window.localStorage.getItem("draw-app-mcp-root");
+  if (stored?.trim()) {
+    return stored.trim().replace(/\\/g, "/");
+  }
+  return "D:/Excalidraw-DrawApp-practice-w-22";
+}
+
+export function setMcpProjectRoot(root: string) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  window.localStorage.setItem("draw-app-mcp-root", root.trim().replace(/\\/g, "/"));
+}
+
+export function getMcpCursorConfig(projectRootHint = getMcpProjectRoot()) {
+  return {
+    mcpServers: {
+      "draw-app": {
+        command: "pnpm",
+        args: ["--filter", "mcp-server", "start"],
+        cwd: projectRootHint.replace(/\\/g, "/"),
+      },
+    },
+  };
+}
+
+export function getMcpClientSetups(projectRootHint = getMcpProjectRoot()): McpClientSetup[] {
+  const root = projectRootHint.replace(/\\/g, "/");
+  const cursorJson = JSON.stringify(getMcpCursorConfig(root), null, 2);
+  const claudeDesktopJson = JSON.stringify(
+    {
+      mcpServers: {
+        "draw-app": {
+          command: "pnpm",
+          args: ["--filter", "mcp-server", "start"],
+          cwd: root,
+        },
+      },
+    },
+    null,
+    2,
+  );
+  const vscodeJson = JSON.stringify(
+    {
+      servers: {
+        "draw-app": {
+          type: "stdio",
+          command: "pnpm",
+          args: ["--filter", "mcp-server", "start"],
+          cwd: root,
+        },
+      },
+    },
+    null,
+    2,
+  );
+
+  return [
+    {
+      id: "claude-code",
+      name: "Claude Code",
+      subtitle: "Anthropic's agentic CLI",
+      runLabel: "Run in your terminal (from the DrawApp repo root)",
+      command: `cd "${root}" && claude mcp add draw-app --transport stdio -- pnpm --filter mcp-server start`,
+      steps: [
+        "Install Claude Code CLI and open a terminal in your DrawApp repo.",
+        "Run the command below to register the DrawApp MCP server.",
+        "Restart Claude Code, then ask it to call list_templates.",
+      ],
+    },
+    {
+      id: "claude-ai",
+      name: "Claude.ai",
+      subtitle: "Claude Desktop app",
+      runLabel: "Paste into Claude Desktop config",
+      configPath: "%APPDATA%/Claude/claude_desktop_config.json",
+      configJson: claudeDesktopJson,
+      steps: [
+        "Open Claude Desktop → Settings → Developer → Edit Config.",
+        "Merge the JSON below into claude_desktop_config.json.",
+        "Fully quit and reopen Claude Desktop, then verify DrawApp tools appear.",
+      ],
+    },
+    {
+      id: "codex",
+      name: "Codex",
+      subtitle: "OpenAI Codex / agent CLI",
+      runLabel: "MCP stdio registration",
+      command: `cd "${root}" && pnpm --filter mcp-server build && pnpm --filter mcp-server start`,
+      configJson: cursorJson,
+      steps: [
+        "Build the MCP server once with pnpm --filter mcp-server build.",
+        "Register DrawApp as a stdio MCP server using the JSON config below in your Codex MCP settings.",
+        "Confirm tools: list_templates, get_template, create_board_stub, list_icon_categories.",
+      ],
+    },
+    {
+      id: "vscode",
+      name: "VS Code",
+      subtitle: "GitHub Copilot Chat MCP",
+      runLabel: "Add to .vscode/mcp.json",
+      configPath: ".vscode/mcp.json",
+      configJson: vscodeJson,
+      steps: [
+        "In the DrawApp repo, create or edit .vscode/mcp.json.",
+        "Paste the JSON below, then reload VS Code.",
+        "Open Copilot Chat and enable the draw-app MCP tools.",
+      ],
+    },
+    {
+      id: "cursor",
+      name: "Cursor",
+      subtitle: "Cursor IDE MCP settings",
+      runLabel: "Add to Cursor MCP config",
+      configPath: "~/.cursor/mcp.json (or Cursor Settings → MCP)",
+      configJson: cursorJson,
+      steps: [
+        "Open Cursor Settings → MCP → Add new global MCP server.",
+        "Paste the JSON below (cwd must point at your DrawApp repo root).",
+        "Click Refresh / restart Cursor agents and test list_templates.",
+      ],
+    },
+    {
+      id: "copilot",
+      name: "GitHub Copilot",
+      subtitle: "Copilot agent with MCP",
+      runLabel: "VS Code Copilot MCP entry",
+      configPath: ".vscode/mcp.json",
+      configJson: vscodeJson,
+      steps: [
+        "Use the same VS Code MCP config shown below.",
+        "Ensure GitHub Copilot Chat is enabled with agent/MCP support.",
+        "Start a Copilot agent session and ask it to list DrawApp templates.",
+      ],
+    },
+  ];
+}
+
+export const MCP_TOOLS = [
+  {
+    name: "list_templates",
+    description: "List flowchart, freeform, ERD, sequence, cloud, and architecture templates",
+  },
+  {
+    name: "get_template",
+    description: "Fetch one catalog template by id with usage hints",
+  },
+  {
+    name: "create_board_stub",
+    description: "Generate a board JSON stub DrawApp can import or hydrate",
+  },
+  {
+    name: "list_icon_categories",
+    description: "List icon library categories (custom, general, diagram, tech, cloud)",
+  },
+] as const;
+
+export type WorkspaceApiToken = {
+  id: string;
+  name: string;
+  token: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+};
+
+const API_TOKEN_KEY = "draw-app-api-tokens-v1";
+
+export function listApiTokens(): WorkspaceApiToken[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+  try {
+    const raw = window.localStorage.getItem(API_TOKEN_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as WorkspaceApiToken[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function createApiToken(name: string) {
+  const token: WorkspaceApiToken = {
+    id: `tok-${Date.now().toString(36)}`,
+    name: name.trim() || "Workspace token",
+    token: `daw_${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`,
+    createdAt: nowIso(),
+    lastUsedAt: null,
+  };
+  const next = [token, ...listApiTokens()];
+  window.localStorage.setItem(API_TOKEN_KEY, JSON.stringify(next));
+  return token;
+}
+
+export function deleteApiToken(id: string) {
+  const next = listApiTokens().filter((token) => token.id !== id);
+  window.localStorage.setItem(API_TOKEN_KEY, JSON.stringify(next));
+}
+
+export function getAppearanceMode(): "system" | "light" | "dark" {
+  if (typeof window === "undefined") return "system";
+  const value = window.localStorage.getItem("draw-app-appearance");
+  if (value === "light" || value === "dark" || value === "system") return value;
+  return "system";
+}
+
+export function setAppearanceMode(mode: "system" | "light" | "dark") {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem("draw-app-appearance", mode);
+  const resolved =
+    mode === "system"
+      ? window.matchMedia("(prefers-color-scheme: dark)").matches
+        ? "dark"
+        : "light"
+      : mode;
+  document.documentElement.dataset.theme = resolved;
+}
+
 export function relativeTime(iso: string) {
   const delta = Date.now() - new Date(iso).getTime();
   const minutes = Math.floor(delta / 60000);
@@ -382,16 +636,4 @@ export function filterFiles(
     })
     .filter((file) => !q || file.name.toLowerCase().includes(q))
     .sort((a, b) => +new Date(b.editedAt) - +new Date(a.editedAt));
-}
-
-export function getMcpCursorConfig(projectRootHint = "D:/Excalidraw-DrawApp-practice-w-22") {
-  return {
-    mcpServers: {
-      "draw-app": {
-        command: "pnpm",
-        args: ["--filter", "mcp-server", "start"],
-        cwd: projectRootHint.replace(/\\/g, "/"),
-      },
-    },
-  };
 }
