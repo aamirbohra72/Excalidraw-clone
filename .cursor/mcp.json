@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "draw-app": {
+      "command": "pnpm",
+      "args": ["--filter", "mcp-server", "start"],
+      "cwd": "${workspaceFolder}"
+    }
+  }
+}

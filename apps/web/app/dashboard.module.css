@@ -1,0 +1,659 @@
+.shell {
+  min-height: 100svh;
+  display: grid;
+  grid-template-columns: 248px 1fr;
+  background: #f6f7f9;
+  color: #1f2430;
+  font-family: var(--font-geist-sans), "Segoe UI", sans-serif;
+}
+
+.loading {
+  min-height: 100svh;
+  display: grid;
+  place-items: center;
+  color: #6b7280;
+}
+
+.sidebar {
+  background: #ffffff;
+  border-right: 1px solid #e6e8ee;
+  padding: 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.teamButton {
+  width: 100%;
+  border: none;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 650;
+  color: #111827;
+}
+
+.teamButton:hover {
+  background: #f3f4f6;
+}
+
+.teamMark {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: linear-gradient(135deg, #ef4444 0 45%, #3b82f6 55% 100%);
+  transform: skewX(-12deg);
+}
+
+.caret {
+  margin-left: auto;
+  color: #9ca3af;
+  font-size: 12px;
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+
+.navItem {
+  width: 100%;
+  border: none;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  color: #374151;
+  font-size: 14px;
+}
+
+.navItem:hover {
+  background: #f3f4f6;
+}
+
+.navItemActive {
+  background: #eef0f4;
+  color: #111827;
+  font-weight: 600;
+}
+
+.navLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.navHint {
+  color: #9ca3af;
+  font-size: 12px;
+}
+
+.beta {
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 700;
+  color: #2563eb;
+  background: #dbeafe;
+  border-radius: 999px;
+  padding: 1px 6px;
+}
+
+.sidebarFooter {
+  padding-top: 8px;
+}
+
+.newFileButton {
+  width: 100%;
+  border: none;
+  border-radius: 12px;
+  background: #2563eb;
+  color: #fff;
+  padding: 12px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.newFileButton:hover {
+  background: #1d4ed8;
+}
+
+.main {
+  padding: 18px 28px 40px;
+  overflow: auto;
+}
+
+.topBar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.filters {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.filterChip {
+  border: none;
+  background: transparent;
+  color: #6b7280;
+  padding: 8px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.filterChipActive {
+  background: #eef0f4;
+  color: #111827;
+}
+
+.search {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 8px 12px;
+  min-width: 240px;
+  color: #6b7280;
+}
+
+.search input {
+  border: none;
+  outline: none;
+  flex: 1;
+  background: transparent;
+  color: #111827;
+}
+
+.search kbd {
+  font-size: 11px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 2px 6px;
+  background: #f9fafb;
+}
+
+.topRight {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.avatars span {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background: #c7d2fe;
+  color: #312e81;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+}
+
+.inviteButton {
+  border: none;
+  background: #2563eb;
+  color: #fff;
+  border-radius: 10px;
+  padding: 8px 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.quickActions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 22px;
+}
+
+.quickCard {
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  border-radius: 14px;
+  min-height: 120px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.quickCard:hover {
+  border-color: #c7d2fe;
+  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.08);
+}
+
+.quickIcon {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: #f3f4f6;
+  color: #4b5563;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.quickIconAi {
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.quickIconMcp {
+  background: #ecfdf5;
+  color: #059669;
+  font-size: 14px;
+}
+
+.quickCard strong {
+  font-size: 15px;
+  color: #111827;
+}
+
+.tableWrap {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.tableHead,
+.tableRow {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr 0.9fr 0.9fr 0.7fr 0.7fr 40px;
+  gap: 8px;
+  align-items: center;
+  padding: 12px 16px;
+}
+
+.tableHead {
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 700;
+  border-bottom: 1px solid #eef0f3;
+}
+
+.tableRow {
+  border-top: 1px solid #f3f4f6;
+  font-size: 13px;
+  color: #4b5563;
+  position: relative;
+}
+
+.tableRow:hover {
+  background: #fafbfc;
+}
+
+.fileName {
+  border: none;
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: #111827;
+  font-weight: 650;
+  cursor: pointer;
+  text-align: left;
+  padding: 0;
+}
+
+.fileGlyph {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: #eef2ff;
+  color: #4338ca;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.authorCell i {
+  font-style: normal;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: #ddd6fe;
+  color: #5b21b6;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+}
+
+.rowMenu {
+  position: relative;
+  justify-self: end;
+}
+
+.rowMenu > button {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 18px;
+  color: #6b7280;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+}
+
+.rowMenu > button:hover {
+  background: #f3f4f6;
+}
+
+.menuPop {
+  position: absolute;
+  right: 0;
+  top: 30px;
+  z-index: 5;
+  width: 150px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.12);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+}
+
+.menuPop button {
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: #374151;
+}
+
+.menuPop button:hover {
+  background: #f3f4f6;
+}
+
+.danger {
+  color: #dc2626 !important;
+}
+
+.empty {
+  padding: 28px 16px;
+  color: #6b7280;
+  text-align: center;
+}
+
+.panelCard {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 18px;
+}
+
+.panelCard h2 {
+  margin: 0 0 8px;
+  font-size: 20px;
+}
+
+.panelHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.muted {
+  color: #6b7280;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.primaryButton,
+.secondaryButton {
+  border: none;
+  border-radius: 10px;
+  padding: 9px 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.primaryButton {
+  background: #2563eb;
+  color: #fff;
+}
+
+.secondaryButton {
+  background: #eef2ff;
+  color: #3730a3;
+}
+
+.folderRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.folderChip {
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  border-radius: 999px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.folderChipActive {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.dangerLink {
+  border: none;
+  background: transparent;
+  color: #dc2626;
+  cursor: pointer;
+  padding: 0;
+}
+
+.listCards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.listCard {
+  border: 1px solid #eef0f3;
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.listCard p {
+  margin: 4px 0 0;
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.listActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.listActions button {
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  border-radius: 8px;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+
+.styleSwatches {
+  display: flex;
+  gap: 6px;
+}
+
+.styleSwatches i {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 1px solid #e5e7eb;
+}
+
+.botLog {
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 12px;
+  min-height: 160px;
+  margin: 12px 0;
+}
+
+.botLog p {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: #374151;
+}
+
+.botRow {
+  display: flex;
+  gap: 8px;
+}
+
+.botRow input,
+.formGrid input {
+  width: 100%;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 10px 12px;
+  outline: none;
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 14px 0;
+}
+
+.formGrid label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #4b5563;
+}
+
+.mcpStatus {
+  margin: 10px 0 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #eff6ff;
+  color: #1e3a8a;
+  font-size: 13px;
+}
+
+.steps {
+  margin: 0 0 14px;
+  padding-left: 18px;
+  color: #4b5563;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.codeBlock {
+  background: #0f172a;
+  color: #e2e8f0;
+  border-radius: 12px;
+  padding: 14px;
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.subheading {
+  margin: 18px 0 8px;
+  font-size: 14px;
+}
+
+.toolList {
+  margin: 0;
+  padding-left: 18px;
+  color: #4b5563;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.helpFab {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+}
+
+@media (max-width: 980px) {
+  .shell {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    border-right: none;
+    border-bottom: 1px solid #e6e8ee;
+  }
+
+  .quickActions,
+  .formGrid,
+  .tableHead,
+  .tableRow {
+    grid-template-columns: 1fr;
+  }
+
+  .tableHead {
+    display: none;
+  }
+
+  .topBar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .search {
+    margin-left: 0;
+    min-width: 0;
+  }
+}

@@ -17,7 +17,9 @@
 .pageDark .extrasPanel,
 .pageDark .propertiesPanel,
 .pageDark .iconsPanel,
-.pageDark .catalogPanel {
+.pageDark .catalogPanel,
+.pageDark .commandModal,
+.pageDark .findModal {
   background: #ffffff;
   border-color: #e3e3ef;
   color: #2d2d32;
@@ -65,12 +67,30 @@
   z-index: 26;
   top: 84px;
   left: 14px;
-  width: 164px;
+  width: 188px;
   border: 1px solid #e2e2ed;
-  border-radius: 12px;
+  border-radius: 14px;
   background: #ffffff;
-  box-shadow: 0 8px 22px rgba(40, 40, 60, 0.1);
-  padding: 10px;
+  box-shadow: 0 12px 28px rgba(40, 40, 60, 0.12);
+  padding: 12px;
+  animation: panelIn 0.16s ease-out;
+}
+
+@keyframes panelIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.panelCloseHint {
+  margin: 10px 0 0;
+  font-size: 11px;
+  color: #9a9aae;
 }
 
 .propertyGroup {
@@ -253,19 +273,96 @@
   z-index: 30;
   top: 48px;
   left: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.missingBoard {
+  min-height: 100svh;
+  display: grid;
+  place-content: center;
+  gap: 10px;
+  text-align: center;
+  color: #3e3e4f;
+}
+
+.homeLinkButton {
+  margin: 8px auto 0;
+  border: none;
+  border-radius: 10px;
+  background: #6858f8;
+  color: #fff;
+  padding: 10px 16px;
+  cursor: pointer;
+  font-weight: 650;
 }
 
 .menuPanel {
   position: absolute;
-  z-index: 20;
+  z-index: 28;
   top: 76px;
   left: 14px;
-  width: 230px;
-  padding: 10px 0;
+  width: 268px;
+  max-height: calc(100svh - 100px);
+  overflow: auto;
+  padding: 12px 10px 14px;
   border: 1px solid #e3e3ef;
-  border-radius: 16px;
+  border-radius: 18px;
   background: #ffffff;
-  box-shadow: 0 8px 26px rgba(33, 33, 52, 0.08);
+  box-shadow: 0 14px 36px rgba(33, 33, 52, 0.12);
+}
+
+.menuHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 6px 10px;
+}
+
+.menuHeader h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #2f2f3d;
+}
+
+.menuHeader p {
+  margin: 3px 0 0;
+  font-size: 12px;
+  color: #8f8fa3;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.menuClose {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 8px;
+  background: #f4f4fb;
+  color: #4a4a5b;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.menuClose:hover {
+  background: #e8e7ff;
+  color: #4d41d8;
+}
+
+.menuSectionLabel {
+  margin: 8px 8px 4px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #9a9aae;
+  font-weight: 700;
 }
 
 .menuItem {
@@ -275,16 +372,208 @@
   background: transparent;
   cursor: pointer;
   text-align: left;
-  padding: 9px 14px;
-  font-size: 14px;
+  padding: 9px 10px;
+  font-size: 13px;
   color: #3e3e4f;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  border-radius: 10px;
+  gap: 8px;
 }
 
 .menuItem:hover {
-  background: #f5f5fb;
+  background: #f5f4ff;
+}
+
+.menuItemActive {
+  background: #eeeaff;
+  color: #4d41d8;
+}
+
+.menuItemDanger:hover {
+  background: #fff0f3;
+  color: #c2255c;
+}
+
+.menuItemLeft {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.menuItemIcon {
+  width: 22px;
+  text-align: center;
+  font-size: 14px;
+}
+
+.menuHomeButton {
+  width: calc(100% - 8px);
+  margin: 12px 4px 0;
+  border: 1px solid #e4e0ff;
+  background: #f7f6ff;
+  color: #4d41d8;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.menuHomeButton:hover {
+  background: #efeaff;
+}
+
+.preferencesBox {
+  margin: 0 4px 8px;
+  padding: 10px;
+  border-radius: 12px;
+  background: #f7f7fc;
+  border: 1px solid #ececf4;
+}
+
+.prefRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: #4a4a5b;
+  margin-bottom: 8px;
+}
+
+.prefInput {
+  width: 120px;
+  border: 1px solid #ddddeb;
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.prefHint {
+  margin: 0;
+  font-size: 11px;
+  color: #9a9aae;
+}
+
+.propertiesHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.propertiesHeader .propertyLabel {
+  margin: 0;
+  font-weight: 700;
+}
+
+.canvasAreaNoGrid {
+  background-image: none !important;
+}
+
+.overlayPanel {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  background: rgba(24, 24, 36, 0.22);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 12vh;
+}
+
+.commandModal,
+.findModal {
+  width: min(480px, 92vw);
+  background: #fff;
+  border-radius: 16px;
+  border: 1px solid #e4e0ff;
+  box-shadow: 0 20px 50px rgba(40, 40, 70, 0.18);
+  padding: 14px;
+}
+
+.findModal h3 {
+  margin: 0 0 4px;
+  font-size: 18px;
+}
+
+.findModal p {
+  margin: 0 0 12px;
+  color: #8f8fa3;
+  font-size: 13px;
+}
+
+.commandInput {
+  width: 100%;
+  border: 1px solid #e0e0ee;
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 14px;
+  outline: none;
+  background: #f7f7fc;
+}
+
+.commandInput:focus {
+  border-color: #b8b0ff;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(104, 88, 248, 0.12);
+}
+
+.commandList {
+  margin-top: 10px;
+  max-height: 320px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.commandItem {
+  width: 100%;
+  border: none;
+  background: transparent;
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  color: #2f2f3d;
+  font-size: 13px;
+}
+
+.commandItem:hover {
+  background: #f5f4ff;
+}
+
+.commandEmpty {
+  text-align: center;
+  color: #9a9aae;
+  font-size: 13px;
+  padding: 16px;
+}
+
+.findActions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.findActions button {
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  border-radius: 10px;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+.findPrimary {
+  background: #6858f8 !important;
+  border-color: #6858f8 !important;
+  color: #fff !important;
+  font-weight: 650;
 }
 
 .themeRow {
