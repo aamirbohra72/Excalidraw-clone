@@ -16,27 +16,65 @@ type DiagramRequest = {
 
 type Provider = "mistral" | "openai";
 
+const STYLE_RULES = `
+Visual style (required — Eraser / colorful software-diagram quality):
+- SHORT labels only: node text max 3 words / ~20 characters (e.g. "Order Service", "Redis", "Kafka").
+- Edge labels max 2 words (e.g. "Publish", "Retry", "Yes", "No"). Never write long sentences on edges.
+- Prefer rounded rectangles Node["Label"] for services. Do NOT use cylinder shapes [(Label)] — they clip text.
+- Use diamonds {} for decisions, stadium (["Start"]) for start/end.
+- Use colorful subgraphs for layers (Clients, Services, Data) with clear titles.
+- Prefer software-engineering naming (Auth Service, Order API, Postgres, Redis, Kafka).
+- Do NOT include classDef or class lines (the app applies a pastel multi-shade theme).
+- Do NOT wrap in markdown fences.
+- Return ONLY valid Mermaid code.
+`.trim();
+
 const FORMAT_INSTRUCTIONS: Record<Exclude<DiagramFormat, "document">, string> = {
-  architecture:
-    "Create a Mermaid flowchart TD architecture diagram with clear system/service boxes and labeled connections. Prefer subgraphs for layers (clients, services, data).",
-  flowchart:
-    "Create a Mermaid flowchart TD process diagram with decisions (Yes/No), start/end nodes, and clear step labels.",
-  erd:
-    "Create a Mermaid erDiagram with entities, attributes, and relationships (1:N, N:M) using realistic field names.",
-  sequence:
-    "Create a Mermaid sequenceDiagram with actors/participants and numbered-style message flow for a realistic interaction.",
-  bpmn:
-    "Create a Mermaid flowchart LR BPMN-style process with swimlane-like subgraphs (or clear role groups), start/end events, tasks, and gateways.",
+  architecture: `
+Create a Mermaid flowchart TD system architecture diagram (Eraser-style: pastel groups, white nodes, short labels).
+Include clients, API/gateway, services, and data stores.
+Use subgraphs for layers (Clients, Services, Data).
+Every node label must be fully visible — keep names short ("Order Service" not a paragraph).
+8–12 nodes, polished and colorful.
+${STYLE_RULES}
+`.trim(),
+  flowchart: `
+Create a Mermaid flowchart TD process diagram like Eraser: readable boxes, short labels, clear Yes/No decisions.
+Include start, decisions, alternate paths, and success end.
+8–14 nodes. Labels must not overflow boxes.
+${STYLE_RULES}
+`.trim(),
+  erd: `
+Create a Mermaid erDiagram for a realistic software data model (SaaS, social, ecommerce, or similar).
+Rules:
+- 4–7 entities with concise names (users, tweets, orders, …).
+- Each entity block lists 3–6 attributes with types (string, number, boolean, timestamp) and PK/FK markers.
+- Include relationships with crow's-foot style (||--o{, }o--||, etc.) and short labels.
+- Prefer Prisma / SQL style field names (id, userId, createdAt).
+Return ONLY Mermaid erDiagram code (no classDef, no markdown fences).
+`.trim(),
+  sequence: `
+Create a Mermaid sequenceDiagram for a realistic software interaction (auth, checkout, API call, password reset).
+Use 3–6 participants with SHORT names (Browser, WebApp, Auth, DB).
+Message text max ~6 words so it stays fully visible.
+Include request/response arrows and one alt/opt for success vs failure.
+Return ONLY Mermaid sequenceDiagram code.
+`.trim(),
+  bpmn: `
+Create a Mermaid flowchart LR BPMN-style process with role/lane subgraphs, start/end, tasks, and gateway decisions.
+Short labels only. Prefer software ops / business processes.
+${STYLE_RULES}
+`.trim(),
 };
 
 function systemFor(mode: "text" | "mermaid", format?: DiagramFormat) {
   if (mode === "mermaid") {
-    return "You are a Mermaid expert. Fix and improve the user's Mermaid diagram. Return ONLY valid Mermaid code with no markdown fences.";
+    return `You are a Mermaid expert. Fix and improve the user's Mermaid diagram for clarity, layout, and Eraser-quality polish. ${STYLE_RULES}`;
   }
   if (format && format !== "document" && FORMAT_INSTRUCTIONS[format]) {
-    return `You are a diagram assistant. ${FORMAT_INSTRUCTIONS[format]} Return ONLY valid Mermaid code with no markdown fences and no commentary.`;
+    return `You are a diagram design assistant that creates Eraser-quality software engineering diagrams.\n${FORMAT_INSTRUCTIONS[format]}`;
   }
-  return "You are a diagram assistant. Convert the user request into a clear Mermaid flowchart. Return ONLY valid Mermaid code with no markdown fences.";
+  return `You are a diagram design assistant. Convert the user request into a clear Mermaid flowchart.\n${STYLE_RULES}`;
 }
 
 export async function POST(request: Request) {
@@ -82,7 +120,7 @@ export async function POST(request: Request) {
             },
             body: JSON.stringify({
               model: "mistral-small-latest",
-              temperature: 0.2,
+              temperature: 0.35,
               messages: [
                 { role: "system", content: systemInstruction },
                 { role: "user", content: userContent },

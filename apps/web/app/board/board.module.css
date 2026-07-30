@@ -217,9 +217,11 @@
 }
 
 .canvasText {
-  fill: #2f3650;
-  font-size: 20px;
-  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  fill: #111827;
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
 .webEmbedStroke {
@@ -230,14 +232,17 @@
 }
 
 .webEmbedTitle {
-  fill: #5f6bff;
+  fill: #4f46e5;
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 700;
+  font-family: "Segoe UI", system-ui, sans-serif;
 }
 
 .webEmbedText {
-  fill: #2f3650;
+  fill: #374151;
   font-size: 13px;
+  font-weight: 500;
+  font-family: "Segoe UI", system-ui, sans-serif;
 }
 
 .lassoStroke {
@@ -987,10 +992,11 @@
 }
 
 .stickyNoteText {
-  fill: #3a3a4c;
+  fill: #111827;
   font-size: 14px;
-  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-  font-weight: 600;
+  font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  font-weight: 650;
+  letter-spacing: 0.01em;
 }
 
 .iconsPanel {
@@ -1317,27 +1323,65 @@
 
 .erdTableTitle {
   fill: #ffffff;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 700;
-  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  letter-spacing: 0.02em;
+  font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
 .erdFieldName {
-  fill: #2f2f3d;
-  font-size: 12px;
-  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-  font-weight: 600;
+  fill: #111827;
+  font-size: 13px;
+  font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  font-weight: 650;
+  letter-spacing: 0.01em;
 }
 
 .erdFieldType {
-  fill: #8f8fa3;
-  font-size: 11px;
-  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  fill: #6b7280;
+  font-size: 12px;
+  font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  font-weight: 550;
 }
 
 .erdRowDivider {
   stroke: #ececf4;
   stroke-width: 1;
+}
+
+.aiExamplesBlock {
+  margin: 0 0 18px;
+}
+
+.aiExampleList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.aiExampleCard {
+  width: 100%;
+  text-align: left;
+  border: 1px solid #e8e8f0;
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #3a3a4d;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.aiExampleCard:hover:not(:disabled) {
+  border-color: #c5c0f5;
+  background: #f8f7ff;
+  box-shadow: 0 4px 14px rgba(80, 70, 180, 0.08);
+}
+
+.aiExampleCard:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .eraserHint {

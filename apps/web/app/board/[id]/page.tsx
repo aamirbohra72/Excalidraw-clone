@@ -24,6 +24,13 @@ import {
   touchFile,
   updateFileContent,
 } from "../../lib/workspaceStore";
+import { beautifyMermaid, enhanceMermaidSvg, getSvgDimensions } from "../../lib/mermaidStyle";
+import {
+  DIAGRAM_COMPOSER_PLACEHOLDERS,
+  DIAGRAM_FORMAT_LABELS,
+  getDiagramExamples,
+} from "../../lib/diagramExamples";
+import { buildErdFromMermaid } from "../../lib/erdFromMermaid";
 
 const MAIN_TOOLS = [
   { id: "hand", label: "Hand", keyHint: "" },
@@ -169,7 +176,36 @@ const getShapeBounds = (start: Point, end: Point) => {
 
 type Bounds = { x: number; y: number; width: number; height: number };
 
-const DIAGRAM_GAP = 72;
+const DIAGRAM_GAP = 96;
+const DIAGRAM_TARGET_WIDTH = 1040;
+const DIAGRAM_MAX_WIDTH = 1280;
+const DIAGRAM_FRAME_EXTRA_W = 56;
+const DIAGRAM_FRAME_EXTRA_H = 92;
+const FIT_PADDING = 48;
+const MIN_ZOOM = 0.25;
+const MAX_ZOOM = 2;
+
+const computeFitView = (
+  bounds: Bounds,
+  viewport: { width: number; height: number },
+  padding = FIT_PADDING,
+): { pan: Point; zoom: number } => {
+  const availW = Math.max(120, viewport.width - padding * 2);
+  const availH = Math.max(120, viewport.height - padding * 2);
+  const zoom = Math.min(
+    1,
+    availW / Math.max(1, bounds.width),
+    availH / Math.max(1, bounds.height),
+  );
+  const clampedZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom));
+  return {
+    zoom: clampedZoom,
+    pan: {
+      x: viewport.width / 2 - (bounds.x + bounds.width / 2) * clampedZoom,
+      y: viewport.height / 2 - (bounds.y + bounds.height / 2) * clampedZoom,
+    },
+  };
+};
 
 const getElementBounds = (element: CanvasElement): Bounds | null => {
   if (element.kind === "shape") {
@@ -276,6 +312,49 @@ const offsetCanvasElements = (elements: CanvasElement[], dx: number, dy: number)
     return element;
   });
 
+const getDiagramBlockBounds = (elements: CanvasElement[]): Bounds[] => {
+  const blocks: Bounds[] = [];
+  for (const element of elements) {
+    if (element.kind === "shape" && element.tool === "frame") {
+      const bounds = getShapeBounds(element.start, element.end);
+      if (bounds.width > 40 && bounds.height > 40) blocks.push(bounds);
+      continue;
+    }
+    if (element.kind === "image") {
+      blocks.push({
+        x: element.point.x,
+        y: element.point.y,
+        width: element.width,
+        height: element.height,
+      });
+    }
+  }
+  return blocks;
+};
+
+/** Ignore orphaned far-away frames from older bugs so new diagrams stay near the canvas. */
+const CLUSTER_RADIUS = 3200;
+
+const getIdsInsideFrameBounds = (elements: CanvasElement[], frameBounds: Bounds, frameId: string) => {
+  const ids: string[] = [];
+  for (const element of elements) {
+    if (element.id === frameId) continue;
+    const elBounds = getElementBounds(element);
+    if (!elBounds) continue;
+    const centerX = elBounds.x + elBounds.width / 2;
+    const centerY = elBounds.y + elBounds.height / 2;
+    if (
+      centerX >= frameBounds.x &&
+      centerX <= frameBounds.x + frameBounds.width &&
+      centerY >= frameBounds.y &&
+      centerY <= frameBounds.y + frameBounds.height
+    ) {
+      ids.push(element.id);
+    }
+  }
+  return ids;
+};
+
 const findFreeDiagramPoint = (
   elements: CanvasElement[],
   width: number,
@@ -283,68 +362,174 @@ const findFreeDiagramPoint = (
   preferred: Point = { x: 80, y: 100 },
   gap = DIAGRAM_GAP,
 ): Point => {
-  const occupied = elements
-    .map(getElementBounds)
-    .filter((item): item is Bounds => {
-      if (!item) return false;
-      return item.width > 0 && item.height > 0;
+  const allBlocks = getDiagramBlockBounds(elements);
+  const blocks = allBlocks
+    .filter((box) => {
+      const cx = box.x + box.width / 2;
+      const cy = box.y + box.height / 2;
+      return Math.hypot(cx - preferred.x, cy - preferred.y) <= CLUSTER_RADIUS;
     })
     .map((item) => inflateBounds(item, gap / 2));
 
   const fits = (point: Point) => {
     const rect = { x: point.x, y: point.y, width, height };
-    return !occupied.some((box) => boundsOverlap(rect, box));
+    return !blocks.some((box) => boundsOverlap(rect, box));
   };
 
-  if (occupied.length === 0 || fits(preferred)) {
+  if (blocks.length === 0 || fits(preferred)) {
     return preferred;
   }
 
-  let maxX = preferred.x;
-  let maxY = preferred.y;
-  let minX = preferred.x;
-  let minY = preferred.y;
-  for (const box of occupied) {
-    maxX = Math.max(maxX, box.x + box.width);
-    maxY = Math.max(maxY, box.y + box.height);
-    minX = Math.min(minX, box.x);
-    minY = Math.min(minY, box.y);
-  }
-
-  const stepX = Math.max(140, Math.floor(width / 2));
-  const stepY = Math.max(120, Math.floor(height / 2));
-  const candidates: Point[] = [
-    { x: maxX + gap, y: minY },
-    { x: minX, y: maxY + gap },
-    { x: maxX + gap, y: maxY + gap },
-    { x: preferred.x, y: maxY + gap },
-    { x: maxX + gap, y: preferred.y },
-  ];
-
-  for (let row = 0; row < 10; row += 1) {
-    for (let col = 0; col < 10; col += 1) {
-      candidates.push({ x: maxX + gap + col * stepX, y: minY + row * stepY });
-      candidates.push({ x: minX + col * stepX, y: maxY + gap + row * stepY });
-      candidates.push({ x: preferred.x + col * stepX, y: preferred.y + row * stepY });
+  let anchor = blocks[0]!;
+  for (const box of blocks) {
+    if (box.x + box.width > anchor.x + anchor.width) {
+      anchor = box;
     }
   }
 
-  for (const point of candidates) {
-    if (fits(point)) return point;
+  const beside: Point = {
+    x: Math.min(anchor.x + anchor.width + gap, preferred.x + 2800),
+    y: anchor.y,
+  };
+  if (fits(beside) && beside.x < preferred.x + 3000) return beside;
+
+  let minX = Infinity;
+  let maxY = -Infinity;
+  for (const box of blocks) {
+    minX = Math.min(minX, box.x);
+    maxY = Math.max(maxY, box.y + box.height);
   }
 
-  return { x: preferred.x, y: maxY + gap };
+  const below: Point = {
+    x: Number.isFinite(minX) ? minX : preferred.x,
+    y: Math.min(maxY + gap, preferred.y + 2400),
+  };
+  if (fits(below)) return below;
+
+  const stepX = Math.max(100, Math.floor(width * 0.4));
+  const stepY = Math.max(100, Math.floor(height * 0.4));
+  for (let row = 0; row < 8; row += 1) {
+    for (let col = 0; col < 6; col += 1) {
+      const stacked = {
+        x: preferred.x + col * stepX,
+        y: preferred.y + (row + 1) * stepY,
+      };
+      if (fits(stacked)) return stacked;
+      const right = {
+        x: preferred.x + (col + 1) * stepX,
+        y: preferred.y + row * stepY,
+      };
+      if (fits(right)) return right;
+    }
+  }
+
+  return { x: preferred.x, y: below.y };
+};
+
+/**
+ * Pull far-off diagram frames back into a neat row near the origin
+ * so the board stays usable after earlier placement bugs.
+ */
+const compactDiagramFrames = (elements: CanvasElement[]): CanvasElement[] => {
+  const frames = elements.filter(
+    (item): item is ShapeElement => item.kind === "shape" && item.tool === "frame",
+  );
+  if (frames.length === 0) return elements;
+
+  let next = [...elements];
+  let cursorX = 80;
+  const baseY = 100;
+  const gap = DIAGRAM_GAP;
+
+  const sorted = [...frames].sort((a, b) => {
+    const ba = getShapeBounds(a.start, a.end);
+    const bb = getShapeBounds(b.start, b.end);
+    return ba.x - bb.x || ba.y - bb.y;
+  });
+
+  for (const frame of sorted) {
+    const live = next.find((item) => item.id === frame.id);
+    if (!live || live.kind !== "shape") continue;
+    const bounds = getShapeBounds(live.start, live.end);
+    const targetX = cursorX;
+    const targetY = baseY;
+    const dx = targetX - bounds.x;
+    const dy = targetY - bounds.y;
+    const childIds = new Set(getIdsInsideFrameBounds(next, bounds, frame.id));
+    childIds.add(frame.id);
+    if (dx !== 0 || dy !== 0) {
+      next = next.map((item) => {
+        if (!childIds.has(item.id)) return item;
+        if (item.kind === "shape") {
+          return {
+            ...item,
+            start: { x: item.start.x + dx, y: item.start.y + dy },
+            end: { x: item.end.x + dx, y: item.end.y + dy },
+          };
+        }
+        if (item.kind === "draw") {
+          return {
+            ...item,
+            points: item.points.map((point) => ({ x: point.x + dx, y: point.y + dy })),
+          };
+        }
+        if (
+          item.kind === "text" ||
+          item.kind === "image" ||
+          item.kind === "web" ||
+          item.kind === "note" ||
+          item.kind === "table"
+        ) {
+          return { ...item, point: { x: item.point.x + dx, y: item.point.y + dy } };
+        }
+        return item;
+      });
+    }
+    cursorX += bounds.width + gap;
+  }
+
+  return next;
+};
+
+const sizeDiagramForCanvas = (
+  naturalWidth: number,
+  naturalHeight: number,
+  viewport?: { width: number; height: number },
+) => {
+  const safeW = Math.max(1, naturalWidth);
+  const safeH = Math.max(1, naturalHeight);
+  const maxW = viewport
+    ? Math.max(360, viewport.width - FIT_PADDING * 2 - DIAGRAM_FRAME_EXTRA_W)
+    : DIAGRAM_TARGET_WIDTH;
+  const maxH = viewport
+    ? Math.max(240, viewport.height - FIT_PADDING * 2 - DIAGRAM_FRAME_EXTRA_H)
+    : 780;
+  // Prefer filling the viewport for readable text; never upscale past 1.6× natural
+  let scale = Math.min(maxW / safeW, maxH / safeH, 1.6);
+  // Keep a readable floor when the viewport is large enough
+  const minReadableW = Math.min(720, maxW);
+  if (safeW * scale < minReadableW) {
+    scale = Math.min(minReadableW / safeW, maxH / safeH, 1.6);
+  }
+  if (safeW * scale > DIAGRAM_MAX_WIDTH) {
+    scale = DIAGRAM_MAX_WIDTH / safeW;
+  }
+  return {
+    width: Math.round(safeW * scale),
+    height: Math.round(safeH * scale),
+    scale,
+  };
 };
 
 const buildFramedDiagramElements = (
   src: string,
   label: string,
   existing: CanvasElement[],
-  diagramWidth = 860,
-  diagramHeight = 480,
+  diagramWidth = 960,
+  diagramHeight = 600,
 ): { elements: CanvasElement[]; origin: Point } => {
-  const pad = 24;
-  const titleSpace = 32;
+  const pad = 28;
+  const titleSpace = 36;
   const frameWidth = diagramWidth + pad * 2;
   const frameHeight = diagramHeight + pad * 2 + titleSpace;
   const origin = findFreeDiagramPoint(existing, frameWidth, frameHeight);
@@ -362,7 +547,7 @@ const buildFramedDiagramElements = (
   const title: TextElement = {
     id: makeId(),
     kind: "text",
-    point: { x: origin.x + pad, y: origin.y + 10 },
+    point: { x: origin.x + pad, y: origin.y + 12 },
     value: label,
     color: "#4338ca",
     opacity: 1,
@@ -380,49 +565,131 @@ const buildFramedDiagramElements = (
 };
 
 const separateOverlappingDiagrams = (elements: CanvasElement[]): CanvasElement[] => {
-  const images = elements.filter((item): item is ImageElement => item.kind === "image");
-  if (images.length < 2) return elements;
+  const frames = elements.filter(
+    (item): item is ShapeElement => item.kind === "shape" && item.tool === "frame",
+  );
+  if (frames.length < 2) {
+    // Fallback: separate bare images.
+    const images = elements.filter((item): item is ImageElement => item.kind === "image");
+    if (images.length < 2) return elements;
+    const nonImages = elements.filter((item) => item.kind !== "image");
+    const relocated: ImageElement[] = [];
+    for (let index = 0; index < images.length; index += 1) {
+      const image = images[index]!;
+      const context = [...nonImages, ...relocated];
+      const current = {
+        x: image.point.x,
+        y: image.point.y,
+        width: image.width,
+        height: image.height,
+      };
+      const overlaps = getDiagramBlockBounds(context)
+        .map((box) => inflateBounds(box, DIAGRAM_GAP / 2))
+        .some((box) => boundsOverlap(current, box));
+      if (!overlaps) {
+        relocated.push(image);
+        continue;
+      }
+      const point = findFreeDiagramPoint(
+        context,
+        image.width,
+        image.height,
+        index === 0 ? image.point : { x: 80, y: 100 },
+      );
+      relocated.push({ ...image, point });
+    }
+    let imageCursor = 0;
+    return elements.map((item) => {
+      if (item.kind !== "image") return item;
+      return relocated[imageCursor++]!;
+    });
+  }
 
-  const nonImages = elements.filter((item) => item.kind !== "image");
-  const relocated: ImageElement[] = [];
+  let next = [...elements];
+  const placedFrameIds: string[] = [];
 
-  for (let index = 0; index < images.length; index += 1) {
-    const image = images[index]!;
-    const context = [...nonImages, ...relocated];
-    const current = {
-      x: image.point.x,
-      y: image.point.y,
-      width: image.width,
-      height: image.height,
+  for (let index = 0; index < frames.length; index += 1) {
+    const frame = frames[index]!;
+    const liveFrame = next.find((item) => item.id === frame.id);
+    if (!liveFrame || liveFrame.kind !== "shape") continue;
+
+    const frameBounds = getShapeBounds(liveFrame.start, liveFrame.end);
+    const others = next.filter((item) => {
+      if (item.id === frame.id) return false;
+      if (placedFrameIds.includes(item.id)) return true;
+      // Ignore children of this frame when checking free space.
+      const childIds = getIdsInsideFrameBounds(next, frameBounds, frame.id);
+      return !childIds.includes(item.id);
+    });
+
+    const currentRect = {
+      x: frameBounds.x,
+      y: frameBounds.y,
+      width: frameBounds.width,
+      height: frameBounds.height,
     };
-    const overlaps = context
-      .map(getElementBounds)
-      .filter((item): item is Bounds => Boolean(item))
-      .some((box) => boundsOverlap(current, inflateBounds(box, DIAGRAM_GAP / 2)));
+    const overlaps = getDiagramBlockBounds(others)
+      .filter((box) => {
+        // skip this frame's own previous bounds if listed
+        return true;
+      })
+      .map((box) => inflateBounds(box, DIAGRAM_GAP / 2))
+      .some((box) => boundsOverlap(currentRect, box));
 
     if (!overlaps && index === 0) {
-      relocated.push(image);
+      placedFrameIds.push(frame.id);
       continue;
     }
     if (!overlaps) {
-      relocated.push(image);
+      placedFrameIds.push(frame.id);
       continue;
     }
 
-    const point = findFreeDiagramPoint(
-      context,
-      image.width,
-      image.height,
-      index === 0 ? image.point : { x: 80, y: 100 },
+    const free = findFreeDiagramPoint(
+      others,
+      frameBounds.width,
+      frameBounds.height,
+      index === 0 ? { x: frameBounds.x, y: frameBounds.y } : { x: 80, y: 100 },
     );
-    relocated.push({ ...image, point });
+    const dx = free.x - frameBounds.x;
+    const dy = free.y - frameBounds.y;
+    if (dx === 0 && dy === 0) {
+      placedFrameIds.push(frame.id);
+      continue;
+    }
+
+    const childIds = new Set(getIdsInsideFrameBounds(next, frameBounds, frame.id));
+    childIds.add(frame.id);
+    next = next.map((item) => {
+      if (!childIds.has(item.id)) return item;
+      if (item.kind === "shape") {
+        return {
+          ...item,
+          start: { x: item.start.x + dx, y: item.start.y + dy },
+          end: { x: item.end.x + dx, y: item.end.y + dy },
+        };
+      }
+      if (item.kind === "draw") {
+        return {
+          ...item,
+          points: item.points.map((point) => ({ x: point.x + dx, y: point.y + dy })),
+        };
+      }
+      if (
+        item.kind === "text" ||
+        item.kind === "image" ||
+        item.kind === "web" ||
+        item.kind === "note" ||
+        item.kind === "table"
+      ) {
+        return { ...item, point: { x: item.point.x + dx, y: item.point.y + dy } };
+      }
+      return item;
+    });
+    placedFrameIds.push(frame.id);
   }
 
-  let imageCursor = 0;
-  return elements.map((item) => {
-    if (item.kind !== "image") return item;
-    return relocated[imageCursor++]!;
-  });
+  return next;
 };
 
 const makeId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -517,16 +784,83 @@ const normalizeMermaidCode = (input: string) => {
 const toSvgDataUrl = (svg: string) =>
   `data:image/svg+xml;base64,${window.btoa(unescape(encodeURIComponent(svg)))}`;
 
-const renderMermaidToImageUrl = async (code: string) => {
+const renderMermaidToImageUrl = async (
+  code: string,
+  viewport?: { width: number; height: number },
+) => {
   const mermaid = (await import("mermaid")).default;
   mermaid.initialize({
     startOnLoad: false,
     securityLevel: "loose",
-    theme: "default",
+    theme: "base",
+    fontFamily: "Segoe UI, system-ui, sans-serif",
+    flowchart: {
+      htmlLabels: false,
+      useMaxWidth: false,
+      padding: 28,
+      wrappingWidth: 220,
+    },
+    sequence: {
+      useMaxWidth: false,
+      width: 200,
+      height: 58,
+      actorMargin: 80,
+      messageMargin: 42,
+    },
+    themeVariables: {
+      fontSize: "14px",
+      fontFamily: "Segoe UI, system-ui, sans-serif",
+      textColor: "#1F2937",
+      primaryTextColor: "#1F2937",
+      lineColor: "#64748B",
+    },
   });
   const id = `mmd-${Math.random().toString(36).slice(2, 10)}`;
-  const { svg } = await mermaid.render(id, code);
-  return toSvgDataUrl(svg);
+  try {
+    const { svg } = await mermaid.render(id, code);
+    const enhanced = enhanceMermaidSvg(svg);
+    const natural = getSvgDimensions(enhanced);
+    const naturalW = Math.max(320, natural.width || 860);
+    const naturalH = Math.max(200, natural.height || 480);
+    const sized = sizeDiagramForCanvas(naturalW, naturalH, viewport);
+
+    // Prefer SVG on the canvas — PNG rasterization clips Mermaid labels.
+    // Scale via width/height so text stays fully visible (just smaller/larger).
+    let scaledSvg = enhanced;
+    if (
+      Math.abs(sized.width - naturalW) > 1 ||
+      Math.abs(sized.height - naturalH) > 1
+    ) {
+      if (/\bviewBox=/.test(scaledSvg)) {
+        scaledSvg = scaledSvg
+          .replace(/\bwidth=["'][^"']*["']/i, `width="${sized.width}"`)
+          .replace(/\bheight=["'][^"']*["']/i, `height="${sized.height}"`);
+        if (!/\bwidth=/.test(scaledSvg)) {
+          scaledSvg = scaledSvg.replace(
+            /<svg/i,
+            `<svg width="${sized.width}" height="${sized.height}"`,
+          );
+        }
+      } else {
+        scaledSvg = scaledSvg
+          .replace(
+            /<svg/i,
+            `<svg viewBox="0 0 ${naturalW} ${naturalH}" width="${sized.width}" height="${sized.height}"`,
+          );
+      }
+    }
+
+    return {
+      src: toSvgDataUrl(scaledSvg),
+      width: sized.width,
+      height: sized.height,
+    };
+  } catch (error) {
+    const container = document.getElementById(id);
+    if (container) container.remove();
+    document.querySelectorAll(`[id^="${id}"]`).forEach((node) => node.remove());
+    throw error instanceof Error ? error : new Error("Mermaid render failed");
+  }
 };
 
 const canonicalizeFlowchart = (input: string) => {
@@ -876,7 +1210,13 @@ function BoardCanvas() {
   const [draftElement, setDraftElement] = useState<ShapeElement | DrawElement | null>(null);
   const [pendingImagePoint, setPendingImagePoint] = useState<Point | null>(null);
   const [pan, setPan] = useState<Point>({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
   const [handStart, setHandStart] = useState<Point | null>(null);
+  const [dragState, setDragState] = useState<{
+    ids: string[];
+    startPoint: Point;
+    lastPoint: Point;
+  } | null>(null);
   const [strokeColor, setStrokeColor] = useState("#1f1f2e");
   const [backgroundColor, setBackgroundColor] = useState("#f7f7fb");
   const [strokeWidth, setStrokeWidth] = useState(2);
@@ -922,10 +1262,16 @@ function BoardCanvas() {
   const menuPanelRef = useRef<HTMLElement | null>(null);
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
   const propertiesPanelRef = useRef<HTMLElement | null>(null);
+  const canvasSvgRef = useRef<SVGSVGElement | null>(null);
+  const zoomRef = useRef(1);
+  const panRef = useRef<Point>({ x: 0, y: 0 });
+  const didInitialFitRef = useRef(false);
   const socketRef = useRef<WebSocket | null>(null);
   const broadcastRef = useRef<BroadcastChannel | null>(null);
   const clientIdRef = useRef(`client-${Math.random().toString(36).slice(2, 10)}`);
   const suppressSyncUntilRef = useRef(0);
+  const elementsRef = useRef<CanvasElement[]>([]);
+  const isRoomHydratedRef = useRef(false);
 
   const activeToolLabel = useMemo(
     () =>
@@ -978,6 +1324,8 @@ function BoardCanvas() {
     setCanvasName(file.name);
     setElements(Array.isArray(file.content.elements) ? (file.content.elements as CanvasElement[]) : []);
     setPan(file.content.pan ?? { x: 0, y: 0 });
+    setZoom(1);
+    didInitialFitRef.current = false;
     setBackgroundColor(file.content.backgroundColor ?? "#f7f7fb");
     setDocumentNotes(
       typeof file.content.documentNotes === "string" ? file.content.documentNotes : "",
@@ -1021,6 +1369,86 @@ function BoardCanvas() {
       }
     }
   }, [fileId, searchParams]);
+
+  useEffect(() => {
+    elementsRef.current = elements;
+  }, [elements]);
+
+  useEffect(() => {
+    zoomRef.current = zoom;
+  }, [zoom]);
+
+  useEffect(() => {
+    panRef.current = pan;
+  }, [pan]);
+
+  useEffect(() => {
+    if (fileMissing) {
+      return;
+    }
+    const svg = canvasSvgRef.current;
+    if (!svg) {
+      return;
+    }
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      const rect = svg.getBoundingClientRect();
+      const cursorX = event.clientX - rect.left;
+      const cursorY = event.clientY - rect.top;
+      const prevZoom = zoomRef.current;
+      const nextZoom = Math.max(
+        MIN_ZOOM,
+        Math.min(MAX_ZOOM, prevZoom * (event.deltaY > 0 ? 1 / 1.08 : 1.08)),
+      );
+      if (nextZoom === prevZoom) {
+        return;
+      }
+      const worldX = (cursorX - panRef.current.x) / prevZoom;
+      const worldY = (cursorY - panRef.current.y) / prevZoom;
+      setZoom(nextZoom);
+      setPan({
+        x: cursorX - worldX * nextZoom,
+        y: cursorY - worldY * nextZoom,
+      });
+    };
+    svg.addEventListener("wheel", onWheel, { passive: false });
+    return () => svg.removeEventListener("wheel", onWheel);
+  }, [fileMissing]);
+
+  useEffect(() => {
+    if (didInitialFitRef.current || fileMissing || elements.length === 0) {
+      return;
+    }
+    const bounds = getElementsUnionBounds(elements);
+    if (!bounds) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      const el = canvasSvgRef.current;
+      const viewport = el
+        ? { width: el.getBoundingClientRect().width, height: el.getBoundingClientRect().height }
+        : {
+            width: Math.max(320, window.innerWidth - 56),
+            height: Math.max(240, window.innerHeight - 120),
+          };
+      if (
+        bounds.width <= viewport.width - FIT_PADDING * 2 &&
+        bounds.height <= viewport.height - FIT_PADDING * 2
+      ) {
+        didInitialFitRef.current = true;
+        return;
+      }
+      const next = computeFitView(bounds, viewport);
+      setZoom(next.zoom);
+      setPan(next.pan);
+      didInitialFitRef.current = true;
+    }, 50);
+    return () => window.clearTimeout(timer);
+  }, [elements, fileMissing]);
+
+  useEffect(() => {
+    isRoomHydratedRef.current = isRoomHydrated;
+  }, [isRoomHydrated]);
 
   useEffect(() => {
     if (!fileId || fileMissing) {
@@ -1115,12 +1543,37 @@ function BoardCanvas() {
         if (!state) {
           return;
         }
+
+        const remoteElements = Array.isArray(state.elements)
+          ? (state.elements as CanvasElement[])
+          : [];
+
+        // Protect local workspace content from empty/default room state
+        // (common when DB is down and server sends DEFAULT_CANVAS_STATE).
+        if (
+          data.type === "canvas_state" &&
+          remoteElements.length === 0 &&
+          elementsRef.current.length > 0
+        ) {
+          setIsRoomHydrated(true);
+          return;
+        }
+
+        // After first hydrate, ignore late empty canvas_state reconnects.
+        if (
+          data.type === "canvas_state" &&
+          isRoomHydratedRef.current &&
+          remoteElements.length === 0
+        ) {
+          return;
+        }
+
         suppressSyncUntilRef.current = Date.now() + 600;
         if (typeof state.canvasName === "string") {
           setCanvasName(state.canvasName);
         }
         if (Array.isArray(state.elements)) {
-          setElements(state.elements as CanvasElement[]);
+          setElements(remoteElements);
         }
         if (typeof state.pan?.x === "number" && typeof state.pan?.y === "number") {
           setPan({ x: state.pan.x, y: state.pan.y });
@@ -1180,11 +1633,18 @@ function BoardCanvas() {
 
       suppressSyncUntilRef.current = Date.now() + 400;
       const state = message.state;
+      const remoteElements = Array.isArray(state.elements)
+        ? (state.elements as CanvasElement[])
+        : [];
+      // Don't wipe richer local canvas with empty peer updates.
+      if (remoteElements.length === 0 && elementsRef.current.length > 0) {
+        return;
+      }
       if (typeof state.canvasName === "string") {
         setCanvasName(state.canvasName);
       }
       if (Array.isArray(state.elements)) {
-        setElements(state.elements as CanvasElement[]);
+        setElements(remoteElements);
       }
       if (typeof state.pan?.x === "number" && typeof state.pan?.y === "number") {
         setPan({ x: state.pan.x, y: state.pan.y });
@@ -1352,7 +1812,7 @@ function BoardCanvas() {
         : "point" in match
           ? match.point
           : { x: 0, y: 0 };
-    setPan({ x: 120 - point.x, y: 140 - point.y });
+    setPan({ x: 120 - point.x * zoomRef.current, y: 140 - point.y * zoomRef.current });
     setHighlightedId(match.id);
     setStatusMessage(`Found on canvas: "${query}"`);
     window.setTimeout(() => setHighlightedId(null), 2200);
@@ -1547,14 +2007,38 @@ function BoardCanvas() {
   const inlineEditStyle =
     editingElement && (editingElement.kind === "text" || editingElement.kind === "note")
       ? {
-          left: editingElement.point.x + pan.x,
-          top: editingElement.point.y + pan.y,
-          width: editingElement.kind === "note" ? editingElement.width : 220,
-          minHeight: editingElement.kind === "note" ? editingElement.height : 36,
+          left: editingElement.point.x * zoom + pan.x,
+          top: editingElement.point.y * zoom + pan.y,
+          width:
+            editingElement.kind === "note" ? editingElement.width * zoom : 220,
+          minHeight:
+            editingElement.kind === "note" ? editingElement.height * zoom : 36,
           background:
             editingElement.kind === "note" ? editingElement.color : "rgba(255,255,255,0.96)",
         }
       : null;
+
+  const getViewportSize = () => {
+    const el = canvasSvgRef.current;
+    if (!el) {
+      return {
+        width: Math.max(320, window.innerWidth - 56 - (showAiChat ? 380 : 0)),
+        height: Math.max(240, window.innerHeight - 120),
+      };
+    }
+    const rect = el.getBoundingClientRect();
+    return { width: rect.width, height: rect.height };
+  };
+
+  const fitElementsInView = (targetElements: CanvasElement[]) => {
+    const bounds = getElementsUnionBounds(targetElements);
+    if (!bounds) {
+      return;
+    }
+    const next = computeFitView(bounds, getViewportSize());
+    setZoom(next.zoom);
+    setPan(next.pan);
+  };
 
   const handleGenerateDiagram = async () => {
     const prompt = generateInput.trim();
@@ -1585,48 +2069,55 @@ function BoardCanvas() {
         return;
       }
 
-      const mermaidCode = canonicalizeFlowchart(normalizeMermaidCode(data.mermaid));
+      const mermaidCode = beautifyMermaid(
+        canonicalizeFlowchart(normalizeMermaidCode(data.mermaid)),
+        "flowchart",
+      );
       if (!mermaidCode) {
         setGenerateError("Generated Mermaid was empty.");
         setIsGenerating(false);
         return;
       }
 
-      const diagramSrc = await renderMermaidToImageUrl(mermaidCode);
-      const canRenderDiagram = await new Promise<boolean>((resolve) => {
-        const image = new window.Image();
-        image.onload = () => resolve(true);
-        image.onerror = () => resolve(false);
-        image.src = diagramSrc;
-      });
-
-      if (canRenderDiagram) {
-        let origin = { x: 80, y: 100 };
-        setElements((previous) => {
-          const framed = buildFramedDiagramElements(
-            diagramSrc,
-            "Generated diagram",
-            previous,
-          );
-          origin = framed.origin;
-          return [...previous, ...framed.elements];
-        });
-        setPan({ x: 80 - origin.x, y: 80 - origin.y });
-      } else {
-        const note: TextElement = {
-          id: makeId(),
-          kind: "text",
-          point: { x: 120, y: 180 },
-          value: `Mermaid render failed. Raw output:\n${mermaidCode}`,
-          color: strokeColor,
-          opacity: strokeOpacity,
-        };
-        setElements((previous) => [...previous, note]);
-        setStatusMessage("Diagram text generated, but rendering failed");
+      let rendered: { src: string; width: number; height: number };
+      try {
+        rendered = await renderMermaidToImageUrl(mermaidCode, getViewportSize());
+      } catch {
+        const compacted = compactDiagramFrames(elementsRef.current);
+        const notePoint = findFreeDiagramPoint(compacted, 500, 200, { x: 80, y: 100 });
+        setElements([
+          ...compacted,
+          {
+            id: makeId(),
+            kind: "note" as const,
+            point: notePoint,
+            width: 500,
+            height: 200,
+            value: `Diagram (raw Mermaid):\n\n${mermaidCode}`,
+            color: "#fef3c7",
+          },
+        ]);
+        setViewMode("canvas");
+        setZoom(1);
+        setPan({ x: 40, y: 40 });
         setShowGenerateModal(false);
+        setStatusMessage("Diagram placed as note (Mermaid render failed)");
         setIsGenerating(false);
         return;
       }
+
+      const compacted = compactDiagramFrames(elementsRef.current);
+      const framed = buildFramedDiagramElements(
+        rendered.src,
+        "Generated diagram",
+        compacted,
+        rendered.width,
+        rendered.height,
+      );
+      setElements([...compacted, ...framed.elements]);
+      setViewMode("canvas");
+      window.setTimeout(() => fitElementsInView(framed.elements), 0);
+      suppressSyncUntilRef.current = Date.now() + 800;
       setShowGenerateModal(false);
       setStatusMessage("Diagram generated and rendered");
     } catch (error) {
@@ -1762,61 +2253,158 @@ function BoardCanvas() {
         return;
       }
 
-      const mermaidCode = canonicalizeFlowchart(normalizeMermaidCode(data.mermaid));
+      const mermaidCode = beautifyMermaid(
+        canonicalizeFlowchart(normalizeMermaidCode(data.mermaid)),
+        aiFormat,
+      );
       if (!mermaidCode) {
         setAiError("Generated Mermaid was empty.");
         return;
       }
 
-      const diagramSrc = await renderMermaidToImageUrl(mermaidCode);
-      const canRenderDiagram = await new Promise<boolean>((resolve) => {
-        const image = new window.Image();
-        image.onload = () => resolve(true);
-        image.onerror = () => resolve(false);
-        image.src = diagramSrc;
-      });
+      // Entity Relationship → native Eraser-style colored table cards
+      if (aiFormat === "erd") {
+        const compacted = compactDiagramFrames(elementsRef.current);
+        const origin = findFreeDiagramPoint(compacted, 720, 520, { x: 80, y: 100 });
+        const erd = buildErdFromMermaid(mermaidCode, origin);
+        if (erd && erd.tables.length > 0) {
+          const placed: CanvasElement[] = [];
+          for (const item of erd.tables) {
+            placed.push({
+              id: makeId(),
+              kind: "table",
+              point: item.point,
+              width: item.width,
+              title: item.title,
+              headerColor: item.headerColor,
+              fields: item.fields,
+            });
+          }
+          for (const edge of erd.arrows) {
+            placed.push({
+              id: makeId(),
+              kind: "shape",
+              tool: "arrow",
+              start: edge.start,
+              end: edge.end,
+              color: "#2f2f3d",
+              strokeWidth: 1.5,
+              opacity: 1,
+            });
+            if (edge.label) {
+              placed.push({
+                id: makeId(),
+                kind: "text",
+                point: {
+                  x: (edge.start.x + edge.end.x) / 2 - 10,
+                  y: (edge.start.y + edge.end.y) / 2 - 14,
+                },
+                value: edge.label,
+                color: "#868e96",
+                opacity: 1,
+              });
+            }
+          }
+          const framePad = 28;
+          const frame: ShapeElement = {
+            id: makeId(),
+            kind: "shape",
+            tool: "frame",
+            start: { x: origin.x - framePad, y: origin.y - framePad - 28 },
+            end: {
+              x: origin.x + erd.bounds.width + framePad,
+              y: origin.y + erd.bounds.height + framePad,
+            },
+            color: "#818cf8",
+            strokeWidth: 2,
+            opacity: 1,
+          };
+          const title: TextElement = {
+            id: makeId(),
+            kind: "text",
+            point: { x: origin.x - framePad + 8, y: origin.y - framePad - 18 },
+            value: "Entity relationship diagram",
+            color: "#4338ca",
+            opacity: 1,
+          };
+          const nextElements = [...compacted, frame, title, ...placed];
+          setElements(nextElements);
+          setViewMode("canvas");
+          window.setTimeout(() => fitElementsInView([frame, title, ...placed]), 0);
+          suppressSyncUntilRef.current = Date.now() + 800;
+          setAiMessages((previous) => [
+            ...previous,
+            {
+              id: makeId(),
+              role: "assistant",
+              text: "Entity relationship diagram added with Eraser-style colored tables. Drag tables with Select to rearrange.",
+            },
+          ]);
+          consumeAiCredit();
+          setAiPrompt("");
+          setStatusMessage("ERD added with colored entity cards");
+          return;
+        }
+      }
 
-      if (canRenderDiagram) {
-        let origin = { x: 80, y: 100 };
-        setElements((previous) => {
-          const framed = buildFramedDiagramElements(
-            diagramSrc,
-            `${aiFormat} diagram`,
-            previous,
-          );
-          origin = framed.origin;
-          return [...previous, ...framed.elements];
-        });
-        setPan({ x: 80 - origin.x, y: 80 - origin.y });
-        setViewMode((previous) => (previous === "document" ? "both" : previous));
+      let rendered: { src: string; width: number; height: number };
+      try {
+        rendered = await renderMermaidToImageUrl(mermaidCode, getViewportSize());
+      } catch {
+        const compacted = compactDiagramFrames(elementsRef.current);
+        const notePoint = findFreeDiagramPoint(compacted, 500, 200, { x: 80, y: 100 });
+        setElements([
+          ...compacted,
+          {
+            id: makeId(),
+            kind: "note" as const,
+            point: notePoint,
+            width: 500,
+            height: 200,
+            value: `${aiFormat} diagram (raw Mermaid):\n\n${mermaidCode}`,
+            color: "#fef3c7",
+          },
+        ]);
+        setViewMode("canvas");
+        setZoom(1);
+        setPan({ x: 40, y: 40 });
         setAiMessages((previous) => [
           ...previous,
           {
             id: makeId(),
             role: "assistant",
-            text: `${aiFormat} diagram added in a free area (separated from existing content).`,
+            text: `${aiFormat} diagram generated but Mermaid rendering failed. Raw code placed as a note.`,
           },
         ]);
         consumeAiCredit();
         setAiPrompt("");
-        setStatusMessage(`${aiFormat} diagram generated`);
-      } else {
-        setElements((previous) => {
-          const notePoint = findFreeDiagramPoint(previous, 420, 160, { x: 80, y: 100 });
-          return [
-            ...previous,
-            {
-              id: makeId(),
-              kind: "text",
-              point: notePoint,
-              value: `Mermaid render failed. Raw output:\n${mermaidCode}`,
-              color: strokeColor,
-              opacity: strokeOpacity,
-            },
-          ];
-        });
-        setAiError("Diagram text generated, but rendering failed.");
+        setStatusMessage(`${aiFormat} placed as note (render issue)`);
+        return;
       }
+
+      const compacted = compactDiagramFrames(elementsRef.current);
+      const framed = buildFramedDiagramElements(
+        rendered.src,
+        `${aiFormat} diagram`,
+        compacted,
+        rendered.width,
+        rendered.height,
+      );
+      setElements([...compacted, ...framed.elements]);
+      setViewMode("canvas");
+      window.setTimeout(() => fitElementsInView(framed.elements), 0);
+      suppressSyncUntilRef.current = Date.now() + 800;
+      setAiMessages((previous) => [
+        ...previous,
+        {
+          id: makeId(),
+          role: "assistant",
+          text: `${aiFormat} diagram added beside existing ones with pastel multi-shade styling. Drag the frame with Select to move the whole group.`,
+        },
+      ]);
+      consumeAiCredit();
+      setAiPrompt("");
+      setStatusMessage(`${aiFormat} diagram added beside previous`);
     } catch (error) {
       setAiError(`Generation failed: ${String(error)}`);
     } finally {
@@ -1826,9 +2414,10 @@ function BoardCanvas() {
 
   const getCanvasPoint = (event: React.PointerEvent<SVGSVGElement>): Point => {
     const rect = event.currentTarget.getBoundingClientRect();
+    const currentZoom = zoomRef.current || 1;
     return {
-      x: event.clientX - rect.left - pan.x,
-      y: event.clientY - rect.top - pan.y,
+      x: (event.clientX - rect.left - panRef.current.x) / currentZoom,
+      y: (event.clientY - rect.top - panRef.current.y) / currentZoom,
     };
   };
 
@@ -1892,6 +2481,28 @@ function BoardCanvas() {
       }
     }
     return null;
+  };
+
+  const getFrameChildIds = (frameElement: ShapeElement): string[] => {
+    if (frameElement.tool !== "frame") return [];
+    const frameBounds = getShapeBounds(frameElement.start, frameElement.end);
+    const ids: string[] = [];
+    for (const element of elements) {
+      if (element.id === frameElement.id) continue;
+      const elBounds = getElementBounds(element);
+      if (!elBounds) continue;
+      const centerX = elBounds.x + elBounds.width / 2;
+      const centerY = elBounds.y + elBounds.height / 2;
+      if (
+        centerX >= frameBounds.x &&
+        centerX <= frameBounds.x + frameBounds.width &&
+        centerY >= frameBounds.y &&
+        centerY <= frameBounds.y + frameBounds.height
+      ) {
+        ids.push(element.id);
+      }
+    }
+    return ids;
   };
 
   const handleOpenCanvas = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -2058,7 +2669,19 @@ function BoardCanvas() {
       };
       return [...previous, ...(frame ? [frame, title] : [title]), ...placed];
     });
-    setPan({ x: 80 - free.x, y: 80 - free.y });
+    window.setTimeout(() => {
+      const next = computeFitView(
+        {
+          x: free.x - 20,
+          y: free.y - 48,
+          width: width + 48,
+          height: height + 68,
+        },
+        getViewportSize(),
+      );
+      setZoom(next.zoom);
+      setPan(next.pan);
+    }, 0);
     setCanvasName((previous) =>
       previous === "Untitled canvas" ? template.title : previous,
     );
@@ -2070,20 +2693,14 @@ function BoardCanvas() {
 
   const handleSeparateOverlappingDiagrams = () => {
     setElements((previous) => {
-      const next = separateOverlappingDiagrams(previous);
-      const changed = next.some((item, index) => {
-        const before = previous[index];
-        if (!before || item.kind !== "image" || before.kind !== "image") return false;
-        return item.point.x !== before.point.x || item.point.y !== before.point.y;
-      });
+      const compacted = compactDiagramFrames(previous);
+      const next = separateOverlappingDiagrams(compacted);
+      const normalized = compactDiagramFrames(next);
       window.setTimeout(() => {
-        setStatusMessage(
-          changed
-            ? "Separated overlapping diagrams with spacing"
-            : "No overlapping diagrams found",
-        );
+        fitElementsInView(normalized);
+        setStatusMessage("Diagrams lined up side-by-side and fitted to view");
       }, 0);
-      return changed ? next : previous;
+      return normalized;
     });
   };
 
@@ -2320,6 +2937,31 @@ function BoardCanvas() {
 
     const point = getCanvasPoint(event);
 
+    if (activeTool === "select") {
+      const hitId = findElementAtPoint(point);
+      if (hitId) {
+        const hitElement = elements.find((item) => item.id === hitId);
+        let ids = [hitId];
+        if (hitElement && hitElement.kind === "shape" && hitElement.tool === "frame") {
+          ids = [hitId, ...getFrameChildIds(hitElement)];
+        } else {
+          const parentFrame = elements.find(
+            (item) =>
+              item.kind === "shape" &&
+              item.tool === "frame" &&
+              getFrameChildIds(item as ShapeElement).includes(hitId),
+          ) as ShapeElement | undefined;
+          if (parentFrame) {
+            ids = [parentFrame.id, ...getFrameChildIds(parentFrame)];
+          }
+        }
+        setDragState({ ids, startPoint: point, lastPoint: point });
+        event.currentTarget.setPointerCapture(event.pointerId);
+        setStatusMessage(`Dragging ${ids.length} element${ids.length > 1 ? "s" : ""}`);
+      }
+      return;
+    }
+
     if (pendingLibraryIcon) {
       placeLibraryIcon(pendingLibraryIcon, point);
       setPendingLibraryIcon(null);
@@ -2410,6 +3052,46 @@ function BoardCanvas() {
   };
 
   const handlePointerMove = (event: React.PointerEvent<SVGSVGElement>) => {
+    if (activeTool === "select" && dragState) {
+      const point = getCanvasPoint(event);
+      const dx = point.x - dragState.lastPoint.x;
+      const dy = point.y - dragState.lastPoint.y;
+      if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
+      setElements((previous) =>
+        previous.map((element) => {
+          if (!dragState.ids.includes(element.id)) return element;
+          if (element.kind === "shape") {
+            return {
+              ...element,
+              start: { x: element.start.x + dx, y: element.start.y + dy },
+              end: { x: element.end.x + dx, y: element.end.y + dy },
+            };
+          }
+          if (element.kind === "draw") {
+            return {
+              ...element,
+              points: element.points.map((item) => ({ x: item.x + dx, y: item.y + dy })),
+            };
+          }
+          if (
+            element.kind === "text" ||
+            element.kind === "image" ||
+            element.kind === "web" ||
+            element.kind === "note" ||
+            element.kind === "table"
+          ) {
+            return {
+              ...element,
+              point: { x: element.point.x + dx, y: element.point.y + dy },
+            };
+          }
+          return element;
+        }),
+      );
+      setDragState((previous) => previous ? { ...previous, lastPoint: point } : null);
+      return;
+    }
+
     if (activeTool === "hand" && handStart) {
       const next = toScreenPoint(event);
       setPan((previous) => ({
@@ -2436,6 +3118,13 @@ function BoardCanvas() {
   };
 
   const handlePointerUp = (event: React.PointerEvent<SVGSVGElement>) => {
+    if (activeTool === "select" && dragState) {
+      setDragState(null);
+      event.currentTarget.releasePointerCapture(event.pointerId);
+      setStatusMessage("Element(s) moved");
+      return;
+    }
+
     if (activeTool === "hand") {
       setHandStart(null);
       event.currentTarget.releasePointerCapture(event.pointerId);
@@ -2694,6 +3383,7 @@ function BoardCanvas() {
             rx={10}
             ry={10}
             className={styles.erdTable}
+            style={{ stroke: element.headerColor }}
           />
           <rect
             x={element.point.x}
@@ -2742,7 +3432,6 @@ function BoardCanvas() {
                   />
                 ) : null}
                 <text x={element.point.x + 14} y={y + 19} className={styles.erdFieldName}>
-                  {field.pk ? "🔑 " : ""}
                   {field.name}
                 </text>
                 <text
@@ -2751,8 +3440,9 @@ function BoardCanvas() {
                   textAnchor="end"
                   className={styles.erdFieldType}
                 >
-                  {field.type}
-                  {field.pk ? " pk" : ""}
+                  {field.pk && !/\bpk\b/i.test(field.type)
+                    ? `${field.type} pk`
+                    : field.type}
                 </text>
               </g>
             );
@@ -2761,17 +3451,22 @@ function BoardCanvas() {
       );
     }
 
-    return (
-      <image
-        key={element.id}
-        href={element.src}
-        x={element.point.x}
-        y={element.point.y}
-        width={element.width}
-        height={element.height}
-        preserveAspectRatio="xMinYMin meet"
-      />
-    );
+    if (element.kind === "image") {
+      return (
+        <image
+          key={element.id}
+          href={element.src}
+          xlinkHref={element.src}
+          x={element.point.x}
+          y={element.point.y}
+          width={element.width}
+          height={element.height}
+          preserveAspectRatio="xMinYMin meet"
+        />
+      );
+    }
+
+    return null;
   };
 
   if (fileMissing) {
@@ -3187,21 +3882,7 @@ function BoardCanvas() {
                   onClick={() => {
                     setAiFormat(id);
                     setAiError("");
-                    if (!aiPrompt.trim()) {
-                      const starters: Record<AiCreateFormat, string> = {
-                        architecture:
-                          "Design a microservices architecture with API gateway, auth, orders, payments, and Postgres",
-                        flowchart:
-                          "Create a CI/CD release flowchart with build, test, security scan, staging, and production gates",
-                        erd: "Model a SaaS billing ERD with organizations, subscriptions, invoices, and usage events",
-                        sequence:
-                          "Sequence for user login through web app, API, auth service, and database",
-                        bpmn: "BPMN-style order fulfillment process across Sales, Warehouse, and Shipping lanes",
-                        document:
-                          "Write architecture documentation for the current canvas (or a proposed cloud platform)",
-                      };
-                      setAiPrompt(starters[id]);
-                    }
+                    setAiPrompt("");
                   }}
                 >
                   <span className={styles.aiCreateIcon}>{icon}</span>
@@ -3209,6 +3890,30 @@ function BoardCanvas() {
                 </button>
               ))}
             </div>
+
+            {aiMessages.length === 0 ? (
+              <div className={styles.aiExamplesBlock}>
+                <p className={styles.aiChatSectionLabel}>
+                  {DIAGRAM_FORMAT_LABELS[aiFormat]} examples
+                </p>
+                <div className={styles.aiExampleList}>
+                  {getDiagramExamples(aiFormat).map((example) => (
+                    <button
+                      key={example.id}
+                      type="button"
+                      className={styles.aiExampleCard}
+                      disabled={aiBusy || aiCreditsUsed >= 3}
+                      onClick={() => {
+                        setAiPrompt(example.prompt);
+                        void handleAiChatGenerate(example.prompt);
+                      }}
+                    >
+                      {example.prompt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
 
             <p className={styles.aiChatSectionLabel}>Already have something to start with?</p>
             <div className={styles.aiStartRow}>
@@ -3251,7 +3956,7 @@ function BoardCanvas() {
               className={styles.aiSeparateBtn}
               onClick={handleSeparateOverlappingDiagrams}
             >
-              Separate overlapping diagrams
+              Separate / line up diagrams
             </button>
             {aiGitContext ? (
               <p className={styles.aiGitHint}>Git context: {aiGitContext}</p>
@@ -3309,7 +4014,7 @@ function BoardCanvas() {
               className={styles.aiComposerInput}
               value={aiPrompt}
               onChange={(event) => setAiPrompt(event.target.value)}
-              placeholder="Describe what to create or edit. Press / for format options."
+              placeholder={DIAGRAM_COMPOSER_PLACEHOLDERS[aiFormat]}
               rows={3}
               onKeyDown={(event) => {
                 if (event.key === "/" && !aiPrompt) {
@@ -3423,14 +4128,20 @@ function BoardCanvas() {
                 type="button"
                 className={styles.sidebarActionBtn}
                 onClick={() => {
-                  setPan({ x: 0, y: 0 });
-                  setStatusMessage("View centered");
+                  if (elements.length === 0) {
+                    setZoom(1);
+                    setPan({ x: 0, y: 0 });
+                    setStatusMessage("View reset");
+                    return;
+                  }
+                  fitElementsInView(elements);
+                  setStatusMessage("View fitted to diagram");
                 }}
               >
                 <span className={styles.sidebarActionIcon}>{sidebarGlyph("center")}</span>
                 <span className={styles.sidebarActionText}>
-                  <strong>Reset view</strong>
-                  <small>Center pan on the canvas</small>
+                  <strong>Fit to view</strong>
+                  <small>Zoom and center content on the canvas</small>
                 </span>
               </button>
             </div>
@@ -4303,6 +5014,7 @@ function BoardCanvas() {
         )}
 
         <svg
+          ref={canvasSvgRef}
           className={`${styles.drawingSurface} ${
             pendingLibraryIcon
               ? styles.imageCursor
@@ -4338,7 +5050,7 @@ function BoardCanvas() {
               <feDropShadow dx="0" dy="0" stdDeviation="3.5" floodColor="#6858f8" floodOpacity="0.95" />
             </filter>
           </defs>
-          <g transform={`translate(${pan.x} ${pan.y})`}>
+          <g transform={`translate(${pan.x} ${pan.y}) scale(${zoom})`}>
             {elements.map((element) =>
               inlineEdit?.id === element.id ? null : (
               <g
@@ -4400,7 +5112,7 @@ function BoardCanvas() {
         </p>
         <p className={styles.statusText}>
           {canvasName} · Active tool: <strong>{activeToolLabel}</strong> · {statusMessage} ·
-          Elements: {elements.length} · Pan: ({Math.round(pan.x)}, {Math.round(pan.y)})
+          Elements: {elements.length} · Zoom: {Math.round(zoom * 100)}% · Pan: ({Math.round(pan.x)}, {Math.round(pan.y)})
         </p>
       </main>
 
