@@ -2,16 +2,16 @@
  * Eraser-style pastel palette — readable labels, no post-layout font blow-up.
  */
 export const MERMAID_CLASS_DEFS = `
-classDef start fill:#FFFFFF,stroke:#7C6FDB,stroke-width:2px,color:#1F2937
-classDef process fill:#FFFFFF,stroke:#60A5FA,stroke-width:2px,color:#1F2937
-classDef processAlt fill:#FFFFFF,stroke:#C084FC,stroke-width:2px,color:#1F2937
+classDef start fill:#EEF2FF,stroke:#6366F1,stroke-width:2px,color:#1F2937
+classDef process fill:#EFF6FF,stroke:#3B82F6,stroke-width:2px,color:#1F2937
+classDef processAlt fill:#FAF5FF,stroke:#A855F7,stroke-width:2px,color:#1F2937
 classDef decision fill:#FFFBEB,stroke:#F59E0B,stroke-width:2px,color:#1F2937
-classDef success fill:#ECFDF5,stroke:#34D399,stroke-width:2px,color:#1F2937
-classDef exit fill:#FEF2F2,stroke:#F87171,stroke-width:2px,color:#1F2937
-classDef data fill:#F0FDFA,stroke:#2DD4BF,stroke-width:2px,color:#1F2937
-classDef service fill:#FFF7ED,stroke:#FB923C,stroke-width:2px,color:#1F2937
+classDef success fill:#ECFDF5,stroke:#10B981,stroke-width:2px,color:#1F2937
+classDef exit fill:#FEF2F2,stroke:#EF4444,stroke-width:2px,color:#1F2937
+classDef data fill:#F0FDFA,stroke:#14B8A6,stroke-width:2px,color:#1F2937
+classDef service fill:#FFF7ED,stroke:#F97316,stroke-width:2px,color:#1F2937
 classDef client fill:#EEF2FF,stroke:#818CF8,stroke-width:2px,color:#1F2937
-classDef gateway fill:#FDF2F8,stroke:#F472B6,stroke-width:2px,color:#1F2937
+classDef gateway fill:#FDF2F8,stroke:#EC4899,stroke-width:2px,color:#1F2937
 `.trim();
 
 export const MERMAID_INIT_FLOW = `%%{init: {
@@ -19,20 +19,20 @@ export const MERMAID_INIT_FLOW = `%%{init: {
   "themeVariables": {
     "fontFamily": "Segoe UI, system-ui, sans-serif",
     "fontSize": "14px",
-    "primaryColor": "#FFFFFF",
+    "primaryColor": "#EEF2FF",
     "primaryTextColor": "#1F2937",
     "primaryBorderColor": "#818CF8",
-    "secondaryColor": "#EEF2FF",
+    "secondaryColor": "#EFF6FF",
     "secondaryTextColor": "#1F2937",
-    "secondaryBorderColor": "#60A5FA",
+    "secondaryBorderColor": "#3B82F6",
     "tertiaryColor": "#FFFBEB",
     "tertiaryTextColor": "#1F2937",
     "tertiaryBorderColor": "#F59E0B",
     "lineColor": "#64748B",
     "textColor": "#1F2937",
-    "mainBkg": "#FFFFFF",
+    "mainBkg": "#EEF2FF",
     "nodeBorder": "#818CF8",
-    "clusterBkg": "#F5F3FF",
+    "clusterBkg": "#F8FAFC",
     "clusterBorder": "#C4B5FD",
     "titleColor": "#312E81",
     "edgeLabelBackground": "#FFFFFF"
@@ -192,11 +192,13 @@ export function normalizeMermaidLabels(code: string): string {
     return `|${shortenLabel(label.trim(), 18)}|`;
   });
 
-  // Sequence messages: A->>B: very long message
-  value = value.replace(
-    /^(\s*[^\n:]+(?:->>?|-->>?|--)[^\n:]*:\s*)(.+)$/gm,
-    (_, prefix: string, msg: string) => `${prefix}${shortenLabel(msg.trim(), 36)}`,
-  );
+  // Sequence messages only (do not touch flowchart --> edges)
+  if (/\bsequencediagram\b/i.test(value)) {
+    value = value.replace(
+      /^(\s*[^\n:]+(?:->>?|-->>?)[^\n:]*:\s*)(.+)$/gm,
+      (_, prefix: string, msg: string) => `${prefix}${shortenLabel(msg.trim(), 36)}`,
+    );
+  }
 
   return value;
 }
@@ -319,7 +321,20 @@ export function beautifyMermaid(code: string, format?: string): string {
     .trim();
 
   const byClass = new Map<string, string[]>();
+  const reserved = new Set([
+    "end",
+    "subgraph",
+    "graph",
+    "flowchart",
+    "style",
+    "class",
+    "classDef",
+    "click",
+    "direction",
+    "linkStyle",
+  ]);
   for (const [id, meta] of nodeMeta) {
+    if (reserved.has(id.toLowerCase())) continue;
     const cls = classifyNode(id, meta.label, meta.hint);
     const list = byClass.get(cls) ?? [];
     list.push(id);

@@ -2374,3 +2374,70 @@
     grid-template-columns: 1fr;
   }
 }
+
+.boardLoadingShell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100svh;
+  background: #f7f7fb;
+}
+
+.boardLoadingTop {
+  height: 56px;
+  background: linear-gradient(90deg, #ffffff, #f3f0ff, #ffffff);
+  background-size: 200% 100%;
+  animation: boardShimmer 1.2s ease-in-out infinite;
+  border-bottom: 1px solid #ebeaf2;
+}
+
+.boardLoadingBody {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.boardLoadingRail {
+  width: 56px;
+  background: #ffffff;
+  border-right: 1px solid #ebeaf2;
+}
+
+.boardLoadingCanvas {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  position: relative;
+  background:
+    linear-gradient(#ececf2 1px, transparent 1px),
+    linear-gradient(90deg, #ececf2 1px, transparent 1px);
+  background-size: 24px 24px;
+  background-color: #fafafc;
+}
+
+.boardLoadingPulse {
+  width: min(420px, 70%);
+  height: 180px;
+  border-radius: 16px;
+  background: linear-gradient(90deg, #eef2ff, #fce7f3, #ecfdf5, #eef2ff);
+  background-size: 300% 100%;
+  animation: boardShimmer 1.4s ease-in-out infinite;
+  box-shadow: 0 12px 40px rgba(99, 102, 241, 0.12);
+}
+
+.boardLoadingText {
+  position: absolute;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+  color: #6366f1;
+  letter-spacing: 0.01em;
+}
+
+@keyframes boardShimmer {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 100% 50%;
+  }
+}

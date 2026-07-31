@@ -815,55 +815,82 @@ const renderMermaidToImageUrl = async (
       lineColor: "#64748B",
     },
   });
-  const id = `mmd-${Math.random().toString(36).slice(2, 10)}`;
-  try {
-    const { svg } = await mermaid.render(id, code);
-    const enhanced = enhanceMermaidSvg(svg);
-    const natural = getSvgDimensions(enhanced);
-    const naturalW = Math.max(320, natural.width || 860);
-    const naturalH = Math.max(200, natural.height || 480);
-    const sized = sizeDiagramForCanvas(naturalW, naturalH, viewport);
 
-    // Prefer SVG on the canvas — PNG rasterization clips Mermaid labels.
-    // Scale via width/height so text stays fully visible (just smaller/larger).
-    let scaledSvg = enhanced;
-    if (
-      Math.abs(sized.width - naturalW) > 1 ||
-      Math.abs(sized.height - naturalH) > 1
-    ) {
-      if (/\bviewBox=/.test(scaledSvg)) {
-        scaledSvg = scaledSvg
-          .replace(/\bwidth=["'][^"']*["']/i, `width="${sized.width}"`)
-          .replace(/\bheight=["'][^"']*["']/i, `height="${sized.height}"`);
-        if (!/\bwidth=/.test(scaledSvg)) {
-          scaledSvg = scaledSvg.replace(
-            /<svg/i,
-            `<svg width="${sized.width}" height="${sized.height}"`,
-          );
-        }
-      } else {
-        scaledSvg = scaledSvg
-          .replace(
-            /<svg/i,
-            `<svg viewBox="0 0 ${naturalW} ${naturalH}" width="${sized.width}" height="${sized.height}"`,
-          );
-      }
+  const tryRender = async (source: string) => {
+    const id = `mmd-${Math.random().toString(36).slice(2, 10)}`;
+    try {
+      const { svg } = await mermaid.render(id, source);
+      return svg;
+    } catch (error) {
+      const container = document.getElementById(id);
+      if (container) container.remove();
+      document.querySelectorAll(`[id^="${id}"]`).forEach((node) => node.remove());
+      throw error;
     }
+  };
 
-    return {
-      src: toSvgDataUrl(scaledSvg),
-      width: sized.width,
-      height: sized.height,
-    };
-  } catch (error) {
-    const container = document.getElementById(id);
-    if (container) container.remove();
-    document.querySelectorAll(`[id^="${id}"]`).forEach((node) => node.remove());
-    throw error instanceof Error ? error : new Error("Mermaid render failed");
+  // Retry without class lines if first render fails (common with swimlanes)
+  let svg: string;
+  try {
+    svg = await tryRender(code);
+  } catch (firstError) {
+    const stripped = code
+      .split("\n")
+      .filter((line) => {
+        const t = line.trim();
+        return !t.startsWith("class ") && !t.startsWith("classDef ");
+      })
+      .join("\n");
+    try {
+      svg = await tryRender(stripped);
+    } catch {
+      throw firstError instanceof Error ? firstError : new Error("Mermaid render failed");
+    }
   }
+
+  const enhanced = enhanceMermaidSvg(svg);
+  const natural = getSvgDimensions(enhanced);
+  const naturalW = Math.max(320, natural.width || 860);
+  const naturalH = Math.max(200, natural.height || 480);
+  const sized = sizeDiagramForCanvas(naturalW, naturalH, viewport);
+
+  let scaledSvg = enhanced;
+  if (
+    Math.abs(sized.width - naturalW) > 1 ||
+    Math.abs(sized.height - naturalH) > 1
+  ) {
+    if (/\bviewBox=/.test(scaledSvg)) {
+      scaledSvg = scaledSvg
+        .replace(/\bwidth=["'][^"']*["']/i, `width="${sized.width}"`)
+        .replace(/\bheight=["'][^"']*["']/i, `height="${sized.height}"`);
+      if (!/\bwidth=/.test(scaledSvg)) {
+        scaledSvg = scaledSvg.replace(
+          /<svg/i,
+          `<svg width="${sized.width}" height="${sized.height}"`,
+        );
+      }
+    } else {
+      scaledSvg = scaledSvg.replace(
+        /<svg/i,
+        `<svg viewBox="0 0 ${naturalW} ${naturalH}" width="${sized.width}" height="${sized.height}"`,
+      );
+    }
+  }
+
+  return {
+    src: toSvgDataUrl(scaledSvg),
+    width: sized.width,
+    height: sized.height,
+  };
 };
 
 const canonicalizeFlowchart = (input: string) => {
+  // Keep subgraphs / swimlanes intact (BPMN + architecture). Flattening them
+  // produces invalid Mermaid and falls back to a sticky-note "render issue".
+  if (/\bsubgraph\b/i.test(input)) {
+    return input;
+  }
+
   const headerMatch = input.match(/\b(flowchart|graph)\s+(TD|TB|LR|RL|BT)\b/i);
   if (!headerMatch) {
     return input;
@@ -874,7 +901,7 @@ const canonicalizeFlowchart = (input: string) => {
   let nodeMatch = nodeRegex.exec(input);
   while (nodeMatch) {
     const id = nodeMatch[1];
-    const label = nodeMatch[2]?.trim();
+    const label = nodeMatch[2]?.trim().replace(/^"|"$/g, "");
     if (id && label && !nodeMap.has(id)) {
       nodeMap.set(id, label);
     }
@@ -901,6 +928,19 @@ const canonicalizeFlowchart = (input: string) => {
   const header = `${headerMatch[1]} ${headerMatch[2]}`;
   const nodeLines = Array.from(nodeMap.entries()).map(([id, label]) => `${id}["${label}"]`);
   return [header, ...nodeLines, ...edges].join("\n");
+};
+
+const prepareMermaidForFormat = (raw: string, format?: string) => {
+  const normalized = normalizeMermaidCode(raw);
+  // Never flatten BPMN / architecture / anything with swimlanes
+  const keepStructure =
+    format === "bpmn" ||
+    format === "architecture" ||
+    format === "sequence" ||
+    format === "erd" ||
+    /\bsubgraph\b/i.test(normalized);
+  const structured = keepStructure ? normalized : canonicalizeFlowchart(normalized);
+  return beautifyMermaid(structured, format);
 };
 
 const toolIcon = (id: MainToolId | "eraser" | "more" | "lock" | "frame" | "note"): ReactNode => {
@@ -1331,7 +1371,8 @@ function BoardCanvas() {
       typeof file.content.documentNotes === "string" ? file.content.documentNotes : "",
     );
     setRoomId(fileId);
-    touchFile(fileId);
+    // Defer localStorage rewrite so first paint isn't blocked
+    const touchTimer = window.setTimeout(() => touchFile(fileId), 800);
     if (searchParams.get("ai") === "1") {
       setShowAiChat(true);
       setAiFormat("architecture");
@@ -1368,6 +1409,7 @@ function BoardCanvas() {
         // ignore malformed style payload
       }
     }
+    return () => window.clearTimeout(touchTimer);
   }, [fileId, searchParams]);
 
   useEffect(() => {
@@ -1484,6 +1526,9 @@ function BoardCanvas() {
   }, []);
 
   useEffect(() => {
+    // Local files are ready immediately — don't block UI on WebSocket.
+    setIsRoomHydrated(true);
+
     const publicWs = process.env.NEXT_PUBLIC_WS_URL?.trim();
     const wsUrlString = (() => {
       if (publicWs) {
@@ -1498,116 +1543,108 @@ function BoardCanvas() {
       wsUrl.port = WS_PORT;
       return wsUrl.toString();
     })();
-    const socket = new WebSocket(wsUrlString);
-    socketRef.current = socket;
-    setIsRoomHydrated(false);
 
-    socket.onopen = () => {
-      socket.send(
-        JSON.stringify({
-          type: "join_room",
-          roomId,
-        }),
-      );
-      setStatusMessage(`Connected to room: ${roomId}`);
-    };
+    let socket: WebSocket | null = null;
+    let cancelled = false;
 
-    socket.onerror = () => {
-      setStatusMessage(`WebSocket failed: ${wsUrlString}`);
-    };
+    // Defer realtime so first paint / navigation feels instant
+    const connectTimer = window.setTimeout(() => {
+      if (cancelled) return;
+      socket = new WebSocket(wsUrlString);
+      socketRef.current = socket;
 
-    socket.onmessage = (event) => {
-      let message: unknown;
-      try {
-        message = JSON.parse(event.data);
-      } catch {
-        return;
-      }
-
-      if (typeof message !== "object" || message === null) {
-        return;
-      }
-
-      const data = message as {
-        type?: string;
-        roomId?: string;
-        clientId?: string;
-        state?: Partial<RoomCanvasState>;
+      socket.onopen = () => {
+        socket?.send(
+          JSON.stringify({
+            type: "join_room",
+            roomId,
+          }),
+        );
+        setStatusMessage(`Connected to room: ${roomId}`);
       };
 
-      if ((data.type === "canvas_state" || data.type === "canvas_update") && data.roomId === roomId) {
-        if (data.clientId && data.clientId === clientIdRef.current) {
-          return;
-        }
-        const state = data.state;
-        if (!state) {
-          return;
-        }
+      socket.onerror = () => {
+        setStatusMessage(`WebSocket failed: ${wsUrlString}`);
+      };
 
-        const remoteElements = Array.isArray(state.elements)
-          ? (state.elements as CanvasElement[])
-          : [];
-
-        // Protect local workspace content from empty/default room state
-        // (common when DB is down and server sends DEFAULT_CANVAS_STATE).
-        if (
-          data.type === "canvas_state" &&
-          remoteElements.length === 0 &&
-          elementsRef.current.length > 0
-        ) {
-          setIsRoomHydrated(true);
+      socket.onmessage = (event) => {
+        let message: unknown;
+        try {
+          message = JSON.parse(event.data);
+        } catch {
           return;
         }
 
-        // After first hydrate, ignore late empty canvas_state reconnects.
-        if (
-          data.type === "canvas_state" &&
-          isRoomHydratedRef.current &&
-          remoteElements.length === 0
-        ) {
+        if (typeof message !== "object" || message === null) {
           return;
         }
 
-        suppressSyncUntilRef.current = Date.now() + 600;
-        if (typeof state.canvasName === "string") {
-          setCanvasName(state.canvasName);
-        }
-        if (Array.isArray(state.elements)) {
-          setElements(remoteElements);
-        }
-        if (typeof state.pan?.x === "number" && typeof state.pan?.y === "number") {
-          setPan({ x: state.pan.x, y: state.pan.y });
-        }
-        if (typeof state.backgroundColor === "string") {
-          setBackgroundColor(state.backgroundColor);
-        }
-        if (data.type === "canvas_state") {
-          setIsRoomHydrated(true);
-        }
-      }
-    };
+        const data = message as {
+          type?: string;
+          roomId?: string;
+          clientId?: string;
+          state?: Partial<RoomCanvasState>;
+        };
 
-    socket.onclose = () => {
-      setStatusMessage("Realtime disconnected");
-      setIsRoomHydrated(false);
-    };
+        if ((data.type === "canvas_state" || data.type === "canvas_update") && data.roomId === roomId) {
+          if (data.clientId && data.clientId === clientIdRef.current) {
+            return;
+          }
+          const state = data.state;
+          if (!state) {
+            return;
+          }
+
+          const remoteElements = Array.isArray(state.elements)
+            ? (state.elements as CanvasElement[])
+            : [];
+
+          if (
+            data.type === "canvas_state" &&
+            remoteElements.length === 0 &&
+            elementsRef.current.length > 0
+          ) {
+            return;
+          }
+
+          if (
+            data.type === "canvas_state" &&
+            isRoomHydratedRef.current &&
+            remoteElements.length === 0
+          ) {
+            return;
+          }
+
+          suppressSyncUntilRef.current = Date.now() + 600;
+          if (typeof state.canvasName === "string") {
+            setCanvasName(state.canvasName);
+          }
+          if (Array.isArray(state.elements)) {
+            setElements(remoteElements);
+          }
+          if (typeof state.pan?.x === "number" && typeof state.pan?.y === "number") {
+            setPan({ x: state.pan.x, y: state.pan.y });
+          }
+          if (typeof state.backgroundColor === "string") {
+            setBackgroundColor(state.backgroundColor);
+          }
+        }
+      };
+
+      socket.onclose = () => {
+        setStatusMessage("Realtime disconnected");
+      };
+    }, 1200);
 
     return () => {
-      socket.close();
-      socketRef.current = null;
+      cancelled = true;
+      window.clearTimeout(connectTimer);
+      socket?.close();
+      if (socketRef.current === socket) {
+        socketRef.current = null;
+      }
     };
   }, [roomId]);
-
-  // If the server never sends canvas_state (e.g. DB error), still allow BroadcastChannel + WS sends once connected.
-  useEffect(() => {
-    if (isRoomHydrated) {
-      return;
-    }
-    const t = window.setTimeout(() => {
-      setIsRoomHydrated(true);
-    }, 4000);
-    return () => window.clearTimeout(t);
-  }, [roomId, isRoomHydrated]);
 
   useEffect(() => {
     const channel = new BroadcastChannel(`draw-app-room-${roomId}`);
@@ -2069,10 +2106,7 @@ function BoardCanvas() {
         return;
       }
 
-      const mermaidCode = beautifyMermaid(
-        canonicalizeFlowchart(normalizeMermaidCode(data.mermaid)),
-        "flowchart",
-      );
+      const mermaidCode = prepareMermaidForFormat(data.mermaid, "flowchart");
       if (!mermaidCode) {
         setGenerateError("Generated Mermaid was empty.");
         setIsGenerating(false);
@@ -2253,10 +2287,7 @@ function BoardCanvas() {
         return;
       }
 
-      const mermaidCode = beautifyMermaid(
-        canonicalizeFlowchart(normalizeMermaidCode(data.mermaid)),
-        aiFormat,
-      );
+      const mermaidCode = prepareMermaidForFormat(data.mermaid, aiFormat);
       if (!mermaidCode) {
         setAiError("Generated Mermaid was empty.");
         return;

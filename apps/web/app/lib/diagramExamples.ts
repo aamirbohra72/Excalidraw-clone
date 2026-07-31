@@ -28,6 +28,26 @@ const EXAMPLES: Record<DiagramExampleFormat, DiagramExample[]> = {
       prompt:
         "Twitter-like social platform data model with users, tweets, follows, likes, and retweets.",
     },
+    {
+      id: "erd-ai-agent",
+      prompt:
+        "AI agent platform ERD with agents, tools, tool_calls, conversations, messages, and memory_items.",
+    },
+    {
+      id: "erd-mcp",
+      prompt:
+        "MCP server registry data model with servers, tools, resources, prompts, clients, and sessions.",
+    },
+    {
+      id: "erd-blockchain",
+      prompt:
+        "On-chain indexing ERD with wallets, transactions, tokens, transfers, and nft_collections.",
+    },
+    {
+      id: "erd-hft",
+      prompt:
+        "HFT trading ERD with instruments, orders, fills, positions, risk_limits, and market_ticks.",
+    },
   ],
   architecture: [
     {
@@ -44,6 +64,31 @@ const EXAMPLES: Record<DiagramExampleFormat, DiagramExample[]> = {
       id: "arch-saas",
       prompt:
         "Multi-tenant SaaS architecture with CDN, BFF, shared services, and per-tenant Postgres schemas.",
+    },
+    {
+      id: "arch-ai-agent",
+      prompt:
+        "AI agent architecture: User → Orchestrator → Planner → Tool Router → MCP tools → Vector DB → LLM.",
+    },
+    {
+      id: "arch-genai-rag",
+      prompt:
+        "GenAI RAG architecture with ingest pipeline, chunking, embeddings, vector store, retriever, and chat API.",
+    },
+    {
+      id: "arch-mcp",
+      prompt:
+        "DrawApp MCP bridge: IDE client → MCP server → tools (diagram, docs, workspace) → Neon Postgres.",
+    },
+    {
+      id: "arch-blockchain",
+      prompt:
+        "Blockchain indexer architecture: RPC nodes → ingest workers → decoder → Postgres → GraphQL API.",
+    },
+    {
+      id: "arch-hft",
+      prompt:
+        "HFT stack: market data gateway, matching engine, risk check, order gateway, and monitoring.",
     },
   ],
   flowchart: [
@@ -62,6 +107,31 @@ const EXAMPLES: Record<DiagramExampleFormat, DiagramExample[]> = {
       prompt:
         "Feature flag rollout decision flow with canary, metrics check, full rollout, or rollback.",
     },
+    {
+      id: "flow-ai-agent",
+      prompt:
+        "AI agent tool-calling loop: receive goal, plan, call tool, observe, retry or finish with answer.",
+    },
+    {
+      id: "flow-genai-eval",
+      prompt:
+        "GenAI evaluation flow: dataset → generate → score (faithfulness, toxicity) → gate → deploy or fix.",
+    },
+    {
+      id: "flow-mcp-auth",
+      prompt:
+        "MCP tool invoke flow with auth check, schema validate, execute tool, and stream result to client.",
+    },
+    {
+      id: "flow-blockchain-tx",
+      prompt:
+        "Blockchain tx flow: draft → gas estimate → sign → broadcast → confirm → index → notify.",
+    },
+    {
+      id: "flow-hft-order",
+      prompt:
+        "HFT order flow: signal → risk checks → place order → partial fill → complete or cancel.",
+    },
   ],
   sequence: [
     {
@@ -78,6 +148,31 @@ const EXAMPLES: Record<DiagramExampleFormat, DiagramExample[]> = {
       id: "seq-reset",
       prompt:
         "Password reset sequence with WebApp, Auth API, Email service, and Redis OTP store.",
+    },
+    {
+      id: "seq-ai-agent",
+      prompt:
+        "AI agent sequence: User, Agent, LLM, MCP Tool Server, and VectorDB for a research question.",
+    },
+    {
+      id: "seq-genai-rag",
+      prompt:
+        "RAG chat sequence: Client, API, Retriever, VectorDB, LLM with citation response.",
+    },
+    {
+      id: "seq-mcp",
+      prompt:
+        "MCP tools/list and tools/call sequence between IDE, MCP Server, and Diagram API.",
+    },
+    {
+      id: "seq-blockchain",
+      prompt:
+        "Wallet connect and token transfer sequence: DApp, Wallet, RPC Node, and Indexer.",
+    },
+    {
+      id: "seq-hft",
+      prompt:
+        "HFT cancel-replace sequence between Strategy, Risk, Matching Engine, and Market Data.",
     },
   ],
   bpmn: [
@@ -96,6 +191,26 @@ const EXAMPLES: Record<DiagramExampleFormat, DiagramExample[]> = {
       prompt:
         "Loan approval BPMN with Applicant, Underwriting, and Compliance swimlanes.",
     },
+    {
+      id: "bpmn-ai-review",
+      prompt:
+        "GenAI content review BPMN across Author, AI Moderator, Human Reviewer, and Publisher.",
+    },
+    {
+      id: "bpmn-mcp-release",
+      prompt:
+        "MCP server release BPMN across Dev, Security Review, Staging, and Production lanes.",
+    },
+    {
+      id: "bpmn-blockchain-listing",
+      prompt:
+        "Token listing BPMN across Issuer, Compliance, Exchange Ops, and Market Making.",
+    },
+    {
+      id: "bpmn-hft-incident",
+      prompt:
+        "HFT trading halt BPMN across Risk, Trading Desk, SRE, and Compliance with restart gate.",
+    },
   ],
   document: [
     {
@@ -112,6 +227,31 @@ const EXAMPLES: Record<DiagramExampleFormat, DiagramExample[]> = {
       id: "doc-auth",
       prompt:
         "Write auth & session design notes for OAuth, refresh tokens, and RBAC across microservices.",
+    },
+    {
+      id: "doc-ai-agent",
+      prompt:
+        "Document an AI agent platform: orchestration, tool use via MCP, memory, evals, and safety rails.",
+    },
+    {
+      id: "doc-genai-rag",
+      prompt:
+        "Write a GenAI RAG design doc covering ingest, chunking, retrieval quality, and cost controls.",
+    },
+    {
+      id: "doc-mcp",
+      prompt:
+        "Document DrawApp MCP server tools, auth model, and how IDE agents create diagrams.",
+    },
+    {
+      id: "doc-blockchain",
+      prompt:
+        "Write an indexing pipeline design for Ethereum transfers with reorg handling.",
+    },
+    {
+      id: "doc-hft",
+      prompt:
+        "Document an HFT risk and matching architecture with latency budgets and failure modes.",
     },
   ],
 };

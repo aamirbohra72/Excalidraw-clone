@@ -61,8 +61,29 @@ Include request/response arrows and one alt/opt for success vs failure.
 Return ONLY Mermaid sequenceDiagram code.
 `.trim(),
   bpmn: `
-Create a Mermaid flowchart LR BPMN-style process with role/lane subgraphs, start/end, tasks, and gateway decisions.
-Short labels only. Prefer software ops / business processes.
+Create a Mermaid flowchart TB BPMN-style process with swimlane subgraphs (Eraser quality).
+CRITICAL syntax rules:
+- Use: flowchart TB
+- Each lane is: subgraph LaneId["Lane Name"] ... end
+- Put tasks inside lanes as Node["Short Label"]
+- Use diamonds Node{"Decision?"} for gateways
+- Connect across lanes with --> edges AFTER the subgraph blocks if needed
+- SHORT labels only (2–3 words). No cylinder shapes.
+- 3 lanes, 8–12 nodes total. Colorful and readable.
+Example shape (follow this pattern):
+flowchart TB
+  subgraph Applicant["Applicant"]
+    A(["Start"]) --> B["Submit App"]
+  end
+  subgraph Underwriting["Underwriting"]
+    C["Review"] --> D{"Approve?"}
+  end
+  subgraph Compliance["Compliance"]
+    E["KYC Check"] --> F(["Done"])
+  end
+  B --> C
+  D -->|Yes| E
+  D -->|No| A
 ${STYLE_RULES}
 `.trim(),
 };

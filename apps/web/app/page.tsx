@@ -170,6 +170,29 @@ export default function DashboardPage() {
     router.push(`/board/${file.id}`);
   };
 
+  const prefetchBoard = useCallback(
+    (fileId: string) => {
+      try {
+        router.prefetch(`/board/${fileId}`);
+      } catch {
+        // prefetch is best-effort
+      }
+    },
+    [router],
+  );
+
+  // Warm the board route after dashboard mounts so the first open is faster
+  useEffect(() => {
+    if (!workspace?.files?.length) return;
+    const warm = window.setTimeout(() => {
+      const first = workspace.files[0];
+      if (first) prefetchBoard(first.id);
+      // Prefetch board shell even without a specific id by warming a known route pattern
+      workspace.files.slice(0, 5).forEach((file) => prefetchBoard(file.id));
+    }, 400);
+    return () => window.clearTimeout(warm);
+  }, [workspace, prefetchBoard]);
+
   if (!workspace) {
     return <div className={styles.loading}>Loading workspace…</div>;
   }
@@ -368,7 +391,13 @@ export default function DashboardPage() {
                   const folder = workspace.folders.find((item) => item.id === file.folderId);
                   return (
                     <div key={file.id} className={styles.tableRow}>
-                      <button type="button" className={styles.fileName} onClick={() => openFile(file)}>
+                      <button
+                        type="button"
+                        className={styles.fileName}
+                        onClick={() => openFile(file)}
+                        onMouseEnter={() => prefetchBoard(file.id)}
+                        onFocus={() => prefetchBoard(file.id)}
+                      >
                         <span className={styles.fileGlyph}>▦</span>
                         {file.name}
                       </button>
