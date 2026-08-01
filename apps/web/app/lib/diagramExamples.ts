@@ -29,6 +29,31 @@ const EXAMPLES: Record<DiagramExampleFormat, DiagramExample[]> = {
         "Twitter-like social platform data model with users, tweets, follows, likes, and retweets.",
     },
     {
+      id: "erd-saas-billing",
+      prompt:
+        "SaaS billing ERD with orgs, members, plans, subscriptions, invoices, and payment_methods.",
+    },
+    {
+      id: "erd-hospital",
+      prompt:
+        "Hospital ERD with patients, doctors, appointments, prescriptions, and lab_results.",
+    },
+    {
+      id: "erd-lms",
+      prompt:
+        "Online learning ERD with students, courses, lessons, enrollments, and quiz_attempts.",
+    },
+    {
+      id: "erd-hr",
+      prompt:
+        "HRIS ERD with employees, departments, roles, leave_requests, and performance_reviews.",
+    },
+    {
+      id: "erd-support",
+      prompt:
+        "Support desk ERD with customers, tickets, agents, comments, and sla_policies.",
+    },
+    {
       id: "erd-ai-agent",
       prompt:
         "AI agent platform ERD with agents, tools, tool_calls, conversations, messages, and memory_items.",
@@ -64,6 +89,31 @@ const EXAMPLES: Record<DiagramExampleFormat, DiagramExample[]> = {
       id: "arch-saas",
       prompt:
         "Multi-tenant SaaS architecture with CDN, BFF, shared services, and per-tenant Postgres schemas.",
+    },
+    {
+      id: "arch-drawapp",
+      prompt:
+        "DrawApp stack: Next.js web, Clerk auth, Neon Postgres, WebSocket collab server, Mistral diagram API.",
+    },
+    {
+      id: "arch-3tier",
+      prompt:
+        "Classic 3-tier web app: Browser → Nginx → App servers → Postgres primary/replica with Redis cache.",
+    },
+    {
+      id: "arch-serverless",
+      prompt:
+        "Serverless API: API Gateway → Lambda functions → DynamoDB, S3, and SQS for async jobs.",
+    },
+    {
+      id: "arch-mobile-bff",
+      prompt:
+        "Mobile BFF architecture: iOS/Android → GraphQL BFF → auth, catalog, and recommendation services.",
+    },
+    {
+      id: "arch-observability",
+      prompt:
+        "Observability stack: apps → OpenTelemetry collector → Prometheus, Loki, Tempo, and Grafana.",
     },
     {
       id: "arch-ai-agent",
@@ -108,6 +158,31 @@ const EXAMPLES: Record<DiagramExampleFormat, DiagramExample[]> = {
         "Feature flag rollout decision flow with canary, metrics check, full rollout, or rollback.",
     },
     {
+      id: "flow-refund",
+      prompt:
+        "Refund request flow: validate order → check policy → approve/deny → credit payment → notify user.",
+    },
+    {
+      id: "flow-password-reset",
+      prompt:
+        "Password reset flowchart: request link → validate token → set new password → revoke sessions.",
+    },
+    {
+      id: "flow-hiring",
+      prompt:
+        "Hiring pipeline flow: apply → screen resume → interview loop → offer → accept or reject.",
+    },
+    {
+      id: "flow-bug-triage",
+      prompt:
+        "Bug triage flow: report → reproduce → severity gate → assign → fix → verify → close.",
+    },
+    {
+      id: "flow-kyc",
+      prompt:
+        "KYC verification flow: upload ID → OCR extract → risk score → manual review or auto-approve.",
+    },
+    {
       id: "flow-ai-agent",
       prompt:
         "AI agent tool-calling loop: receive goal, plan, call tool, observe, retry or finish with answer.",
@@ -148,6 +223,41 @@ const EXAMPLES: Record<DiagramExampleFormat, DiagramExample[]> = {
       id: "seq-reset",
       prompt:
         "Password reset sequence with WebApp, Auth API, Email service, and Redis OTP store.",
+    },
+    {
+      id: "seq-razorpay",
+      prompt:
+        "Razorpay checkout sequence: WebApp creates order, Browser pays, webhook verifies, Team plan unlocks.",
+    },
+    {
+      id: "seq-websocket",
+      prompt:
+        "Realtime board sync sequence: Client A draws, WS server broadcasts, Client B applies patch.",
+    },
+    {
+      id: "seq-file-upload",
+      prompt:
+        "Signed S3 upload sequence: Client requests URL, API returns signed URL, Client PUTs file, CDN invalidate.",
+    },
+    {
+      id: "seq-2fa",
+      prompt:
+        "Login with 2FA sequence: Browser, Auth API, SMS gateway, and session store with OTP verify.",
+    },
+    {
+      id: "seq-saga",
+      prompt:
+        "Order saga sequence: Order, Payment, Inventory, Shipping with compensate on payment failure.",
+    },
+    {
+      id: "seq-invite",
+      prompt:
+        "Team invite sequence: Admin invites, Email link, Invitee accepts, Auth creates membership.",
+    },
+    {
+      id: "seq-webhook-retry",
+      prompt:
+        "Webhook delivery sequence: Producer → Queue → Worker → Partner API with retry and DLQ.",
     },
     {
       id: "seq-ai-agent",
@@ -192,6 +302,46 @@ const EXAMPLES: Record<DiagramExampleFormat, DiagramExample[]> = {
         "Loan approval BPMN with Applicant, Underwriting, and Compliance swimlanes.",
     },
     {
+      id: "bpmn-employee-onboard",
+      prompt:
+        "Employee onboarding BPMN across HR, IT, and Manager with laptop setup and access grants.",
+    },
+    {
+      id: "bpmn-purchase",
+      prompt:
+        "Purchase request BPMN across Requester, Manager, Finance, and Vendor with budget gate.",
+    },
+    {
+      id: "bpmn-support-ticket",
+      prompt:
+        "Support ticket BPMN across Customer, L1 Support, L2 Engineering, and QA with reopen path.",
+    },
+    {
+      id: "bpmn-refund",
+      prompt:
+        "Refund handling BPMN across Customer Care, Payments, and Finance with fraud check gateway.",
+    },
+    {
+      id: "bpmn-change-mgmt",
+      prompt:
+        "IT change management BPMN across Requester, CAB, Ops, and SRE with rollback decision.",
+    },
+    {
+      id: "bpmn-hiring",
+      prompt:
+        "Hiring BPMN across Recruiter, Hiring Manager, and Candidate with offer accept/reject.",
+    },
+    {
+      id: "bpmn-insurance-claim",
+      prompt:
+        "Insurance claim BPMN across Policyholder, Claims Agent, Adjuster, and Payout with deny path.",
+    },
+    {
+      id: "bpmn-content-publish",
+      prompt:
+        "Content publish BPMN across Writer, Editor, Legal, and Ops with schedule vs reject.",
+    },
+    {
       id: "bpmn-ai-review",
       prompt:
         "GenAI content review BPMN across Author, AI Moderator, Human Reviewer, and Publisher.",
@@ -227,6 +377,36 @@ const EXAMPLES: Record<DiagramExampleFormat, DiagramExample[]> = {
       id: "doc-auth",
       prompt:
         "Write auth & session design notes for OAuth, refresh tokens, and RBAC across microservices.",
+    },
+    {
+      id: "doc-drawapp",
+      prompt:
+        "Document DrawApp: Next.js board, Clerk auth, Razorpay Team plan, Mermaid AI diagrams, Neon DB.",
+    },
+    {
+      id: "doc-api-design",
+      prompt:
+        "Write an API design doc for a public REST + webhook product with versioning and rate limits.",
+    },
+    {
+      id: "doc-data-model",
+      prompt:
+        "Document the entity model for a multi-tenant SaaS: orgs, members, boards, and billing.",
+    },
+    {
+      id: "doc-ci-cd",
+      prompt:
+        "Write a CI/CD runbook: branch strategy, checks, staging promote, and rollback steps.",
+    },
+    {
+      id: "doc-incident",
+      prompt:
+        "Write an incident response playbook with severity levels, on-call roles, and comms templates.",
+    },
+    {
+      id: "doc-security",
+      prompt:
+        "Document a security overview: authn/z, secrets, encryption, audit logs, and threat model.",
     },
     {
       id: "doc-ai-agent",
@@ -272,6 +452,17 @@ export const DIAGRAM_COMPOSER_PLACEHOLDERS: Record<DiagramExampleFormat, string>
   sequence: "Create a sequence diagram:",
   bpmn: "Create a BPMN diagram:",
   document: "Create a document:",
+};
+
+/** Short tips shown above example chips for each format. */
+export const DIAGRAM_FORMAT_HINTS: Record<DiagramExampleFormat, string> = {
+  architecture:
+    "Click a sample to generate a system architecture (services, gateways, data stores).",
+  flowchart: "Click a sample to generate a process flow with decisions and Yes/No paths.",
+  erd: "Click a sample to generate an entity-relationship / Prisma-style data model.",
+  sequence: "Click a sample to generate a participant message sequence (request/response).",
+  bpmn: "Click a sample to generate a BPMN-style process with swimlanes and gateways.",
+  document: "Click a sample to generate Markdown architecture / design documentation.",
 };
 
 export function getDiagramExamples(format: DiagramExampleFormat): DiagramExample[] {

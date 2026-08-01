@@ -28,10 +28,15 @@ import {
 import { beautifyMermaid, enhanceMermaidSvg, getSvgDimensions } from "../../lib/mermaidStyle";
 import {
   DIAGRAM_COMPOSER_PLACEHOLDERS,
+  DIAGRAM_FORMAT_HINTS,
   DIAGRAM_FORMAT_LABELS,
   getDiagramExamples,
 } from "../../lib/diagramExamples";
-import { buildErdFromMermaid } from "../../lib/erdFromMermaid";
+import {
+  buildErdFromMermaid,
+  isCrowfootJunkText,
+  sanitizeErdFields,
+} from "../../lib/erdFromMermaid";
 
 const MAIN_TOOLS = [
   { id: "hand", label: "Hand", keyHint: "" },
@@ -694,6 +699,24 @@ const separateOverlappingDiagrams = (elements: CanvasElement[]): CanvasElement[]
 };
 
 const makeId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+const CROWFOOT_INLINE_RE = /[|}o*]{1,3}-{1,3}[|{o*]{1,3}/gi;
+
+/** Drop crow-foot junk text and clean ER table fields (fixes older bad AI ERDs). */
+const sanitizeCanvasElements = (items: CanvasElement[]): CanvasElement[] =>
+  items
+    .filter((element) => {
+      if (element.kind === "text" && isCrowfootJunkText(element.value)) return false;
+      return true;
+    })
+    .map((element) => {
+      if (element.kind !== "table") return element;
+      return {
+        ...element,
+        title: element.title.replace(CROWFOOT_INLINE_RE, "").trim() || "Entity",
+        fields: sanitizeErdFields(element.fields),
+      };
+    });
 
 const summarizeCanvasArchitecture = (elements: CanvasElement[], canvasName: string) => {
   const lines: string[] = [`Board: ${canvasName}`, `Element count: ${elements.length}`, ""];
@@ -1363,7 +1386,11 @@ function BoardCanvas() {
     }
     setFileMissing(false);
     setCanvasName(file.name);
-    setElements(Array.isArray(file.content.elements) ? (file.content.elements as CanvasElement[]) : []);
+    setElements(
+      sanitizeCanvasElements(
+        Array.isArray(file.content.elements) ? (file.content.elements as CanvasElement[]) : [],
+      ),
+    );
     setPan(file.content.pan ?? { x: 0, y: 0 });
     setZoom(1);
     didInitialFitRef.current = false;
@@ -2309,7 +2336,7 @@ function BoardCanvas() {
               width: item.width,
               title: item.title,
               headerColor: item.headerColor,
-              fields: item.fields,
+              fields: sanitizeErdFields(item.fields),
             });
           }
           for (const edge of erd.arrows) {
@@ -3313,6 +3340,9 @@ function BoardCanvas() {
     }
 
     if (element.kind === "text") {
+      if (isCrowfootJunkText(element.value)) {
+        return null;
+      }
       const lines = element.value.split("\n");
       return (
         <text
@@ -3404,7 +3434,8 @@ function BoardCanvas() {
     if (element.kind === "table") {
       const rowHeight = 28;
       const headerHeight = 40;
-      const height = headerHeight + element.fields.length * rowHeight;
+      const fields = sanitizeErdFields(element.fields);
+      const height = headerHeight + fields.length * rowHeight;
       return (
         <g key={element.id}>
           <rect
@@ -3448,12 +3479,12 @@ function BoardCanvas() {
             y={element.point.y + 26}
             className={styles.erdTableTitle}
           >
-            {element.title}
+            {element.title.replace(CROWFOOT_INLINE_RE, "").trim() || "Entity"}
           </text>
-          {element.fields.map((field, index) => {
+          {fields.map((field, index) => {
             const y = element.point.y + headerHeight + index * rowHeight;
             return (
-              <g key={`${element.id}-field-${field.name}`}>
+              <g key={`${element.id}-field-${index}-${field.name}`}>
                 {index > 0 ? (
                   <line
                     x1={element.point.x + 8}
@@ -3937,6 +3968,7 @@ function BoardCanvas() {
                 <p className={styles.aiChatSectionLabel}>
                   {DIAGRAM_FORMAT_LABELS[aiFormat]} examples
                 </p>
+                <p className={styles.eraserHint}>{DIAGRAM_FORMAT_HINTS[aiFormat]}</p>
                 <div className={styles.aiExampleList}>
                   {getDiagramExamples(aiFormat).map((example) => (
                     <button

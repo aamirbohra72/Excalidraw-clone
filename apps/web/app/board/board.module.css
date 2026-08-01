@@ -1357,6 +1357,9 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  max-height: min(42vh, 360px);
+  overflow: auto;
+  padding-right: 4px;
 }
 
 .aiExampleCard {

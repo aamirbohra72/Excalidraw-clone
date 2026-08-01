@@ -50,14 +50,18 @@ Rules:
 - 4–7 entities with concise names (users, tweets, orders, …).
 - Each entity block lists 3–6 attributes with types (string, number, boolean, timestamp) and PK/FK markers.
 - Include relationships with crow's-foot style (||--o{, }o--||, etc.) and short labels.
+- Put relationships OUTSIDE entity blocks (never inside { }).
 - Prefer Prisma / SQL style field names (id, userId, createdAt).
 Return ONLY Mermaid erDiagram code (no classDef, no markdown fences).
 `.trim(),
   sequence: `
-Create a Mermaid sequenceDiagram for a realistic software interaction (auth, checkout, API call, password reset).
-Use 3–6 participants with SHORT names (Browser, WebApp, Auth, DB).
+Create a Mermaid sequenceDiagram for a realistic software interaction.
+Use 4–6 participants with SHORT names (Browser, WebApp, Auth, DB, Queue).
 Message text max ~6 words so it stays fully visible.
-Include request/response arrows and one alt/opt for success vs failure.
+Include:
+- activate/deactivate where useful
+- at least one alt or opt block (success vs failure / retry)
+- clear request → response arrows
 Return ONLY Mermaid sequenceDiagram code.
 `.trim(),
   bpmn: `
@@ -66,10 +70,11 @@ CRITICAL syntax rules:
 - Use: flowchart TB
 - Each lane is: subgraph LaneId["Lane Name"] ... end
 - Put tasks inside lanes as Node["Short Label"]
-- Use diamonds Node{"Decision?"} for gateways
+- Use diamonds Node{"Decision?"} for gateways (approve/reject, yes/no)
 - Connect across lanes with --> edges AFTER the subgraph blocks if needed
 - SHORT labels only (2–3 words). No cylinder shapes.
-- 3 lanes, 8–12 nodes total. Colorful and readable.
+- 3–4 lanes, 10–14 nodes total. Include start/end stadium shapes.
+- Colorful and readable; show a happy path and one reject/escalate path.
 Example shape (follow this pattern):
 flowchart TB
   subgraph Applicant["Applicant"]
