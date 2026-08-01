@@ -69,6 +69,15 @@ export type McpConnectionState = {
   notes: string;
 };
 
+export type WorkspacePlan = "practice" | "team";
+
+export type BillingState = {
+  plan: WorkspacePlan;
+  razorpayPaymentId: string | null;
+  razorpayOrderId: string | null;
+  upgradedAt: string | null;
+};
+
 export type WorkspaceState = {
   teamName: string;
   author: string;
@@ -78,6 +87,7 @@ export type WorkspaceState = {
   styles: CustomStyle[];
   github: GithubSyncConfig;
   mcp: McpConnectionState;
+  billing: BillingState;
 };
 
 const STORAGE_KEY = "draw-app-workspace-v1";
@@ -137,6 +147,12 @@ const defaultState = (): WorkspaceState => ({
     lastCheckedAt: null,
     notes: "",
   },
+  billing: {
+    plan: "practice",
+    razorpayPaymentId: null,
+    razorpayOrderId: null,
+    upgradedAt: null,
+  },
 });
 
 function readState(): WorkspaceState {
@@ -158,6 +174,10 @@ function readState(): WorkspaceState {
       folders: Array.isArray(parsed.folders) ? parsed.folders : [],
       presets: Array.isArray(parsed.presets) ? parsed.presets : [],
       styles: Array.isArray(parsed.styles) ? parsed.styles : [],
+      billing: {
+        ...defaultState().billing,
+        ...(parsed.billing ?? {}),
+      },
     };
   } catch {
     return defaultState();
@@ -336,6 +356,21 @@ export function updateMcp(config: Partial<McpConnectionState>) {
   state.mcp = { ...state.mcp, ...config, lastCheckedAt: nowIso() };
   writeState(state);
   return state.mcp;
+}
+
+export function setWorkspacePlan(
+  plan: WorkspacePlan,
+  payment?: { paymentId?: string; orderId?: string },
+) {
+  const state = readState();
+  state.billing = {
+    plan,
+    razorpayPaymentId: payment?.paymentId ?? state.billing.razorpayPaymentId,
+    razorpayOrderId: payment?.orderId ?? state.billing.razorpayOrderId,
+    upgradedAt: plan === "team" ? nowIso() : null,
+  };
+  writeState(state);
+  return state.billing;
 }
 
 export function updateProfile(config: Partial<{ teamName: string; author: string }>) {

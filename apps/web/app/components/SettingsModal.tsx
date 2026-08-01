@@ -19,11 +19,35 @@ import {
   updateGithub,
   updateMcp,
   updateProfile,
+  setWorkspacePlan,
   type McpClientId,
   type WorkspaceApiToken,
   type WorkspaceState,
 } from "../lib/workspaceStore";
 import { loadCustomIcons, saveCustomIcons, type LibraryIcon } from "../lib/iconLibrary";
+
+declare global {
+  interface Window {
+    Razorpay?: new (options: RazorpayCheckoutOptions) => { open: () => void };
+  }
+}
+
+type RazorpayCheckoutOptions = {
+  key: string;
+  amount: number;
+  currency: string;
+  name: string;
+  description: string;
+  order_id: string;
+  handler: (response: {
+    razorpay_order_id: string;
+    razorpay_payment_id: string;
+    razorpay_signature: string;
+  }) => void;
+  theme?: { color?: string };
+  modal?: { ondismiss?: () => void };
+  prefill?: { name?: string; email?: string };
+};
 
 type SettingsTab =
   | "members"
@@ -91,10 +115,129 @@ export default function SettingsModal({
   const [githubBranch, setGithubBranch] = useState(workspace.github.branch);
   const [githubPath, setGithubPath] = useState(workspace.github.path);
   const [newFolderName, setNewFolderName] = useState("");
+  const [billingBusy, setBillingBusy] = useState(false);
+  const [billingMessage, setBillingMessage] = useState("");
+  const [billingError, setBillingError] = useState("");
+
+  const isTeamPlan = workspace.billing?.plan === "team";
+  const isRazorpayTestMode = (process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID ?? "").startsWith(
+    "rzp_test_",
+  );
+
+  const loadRazorpayScript = () =>
+    new Promise<boolean>((resolve) => {
+      if (typeof window === "undefined") {
+        resolve(false);
+        return;
+      }
+      if (window.Razorpay) {
+        resolve(true);
+        return;
+      }
+      const existing = document.querySelector<HTMLScriptElement>('script[data-razorpay="checkout"]');
+      if (existing) {
+        existing.addEventListener("load", () => resolve(true));
+        existing.addEventListener("error", () => resolve(false));
+        return;
+      }
+      const script = document.createElement("script");
+      script.src = "https://checkout.razorpay.com/v1/checkout.js";
+      script.async = true;
+      script.dataset.razorpay = "checkout";
+      script.onload = () => resolve(true);
+      script.onerror = () => resolve(false);
+      document.body.appendChild(script);
+    });
+
+  const simulateTeamUpgrade = () => {
+    if (!isRazorpayTestMode) return;
+    setBillingError("");
+    setWorkspacePlan("team", {
+      paymentId: `pay_sim_${Date.now().toString(36)}`,
+      orderId: `order_sim_${Date.now().toString(36)}`,
+    });
+    onRefresh();
+    setBillingMessage("Simulated Team upgrade (test mode only). No Razorpay charge.");
+  };
+
+  const startTeamCheckout = async () => {
+    setBillingBusy(true);
+    setBillingError("");
+    setBillingMessage("");
+    try {
+      const orderRes = await fetch("/api/razorpay/order", { method: "POST" });
+      const orderData = (await orderRes.json()) as {
+        error?: string;
+        orderId?: string;
+        amount?: number;
+        currency?: string;
+        keyId?: string;
+        name?: string;
+        description?: string;
+      };
+      if (!orderRes.ok || !orderData.orderId || !orderData.keyId) {
+        throw new Error(orderData.error || "Could not create payment order");
+      }
+
+      const loaded = await loadRazorpayScript();
+      if (!loaded || !window.Razorpay) {
+        throw new Error("Razorpay checkout failed to load. Check your network.");
+      }
+
+      const checkout = new window.Razorpay({
+        key: orderData.keyId,
+        amount: orderData.amount ?? 9900,
+        currency: orderData.currency ?? "INR",
+        name: orderData.name ?? "DrawApp",
+        description: orderData.description ?? "Team plan",
+        order_id: orderData.orderId,
+        theme: { color: "#2563eb" },
+        prefill: { name: workspace.author },
+        modal: {
+          ondismiss: () => {
+            setBillingBusy(false);
+            setBillingMessage("Checkout closed. No charge was made.");
+          },
+        },
+        handler: async (response) => {
+          try {
+            const verifyRes = await fetch("/api/razorpay/verify", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(response),
+            });
+            const verifyData = (await verifyRes.json()) as { error?: string; ok?: boolean };
+            if (!verifyRes.ok || !verifyData.ok) {
+              throw new Error(verifyData.error || "Payment verification failed");
+            }
+            setWorkspacePlan("team", {
+              paymentId: response.razorpay_payment_id,
+              orderId: response.razorpay_order_id,
+            });
+            onRefresh();
+            setBillingMessage("Payment successful. Team plan is now active.");
+            setBillingError("");
+          } catch (error) {
+            setBillingError(error instanceof Error ? error.message : "Verification failed");
+          } finally {
+            setBillingBusy(false);
+          }
+        },
+      });
+
+      checkout.open();
+    } catch (error) {
+      setBillingBusy(false);
+      setBillingError(error instanceof Error ? error.message : "Checkout failed");
+    }
+  };
 
   useEffect(() => {
     if (!open) return;
     setTab(initialTab);
+    setBillingBusy(false);
+    setBillingError("");
+    setBillingMessage("");
     setProjectRoot(getMcpProjectRoot());
     setTeamName(workspace.teamName);
     setAuthor(workspace.author);
@@ -412,10 +555,12 @@ export default function SettingsModal({
               <>
                 <h3 className={styles.settingsPanelTitle}>Plans & Billing</h3>
                 <p className={styles.settingsLead}>
-                  DrawApp practice workspace plan. Local features are unlocked for development.
+                  Upgrade with Razorpay test checkout. No real money is charged in test mode.
                 </p>
                 <div className={styles.planGrid}>
-                  <article className={`${styles.planCard} ${styles.planCardActive}`}>
+                  <article
+                    className={`${styles.planCard}${!isTeamPlan ? ` ${styles.planCardActive}` : ""}`}
+                  >
                     <h4>Practice</h4>
                     <p className={styles.planPrice}>Free</p>
                     <ul>
@@ -425,30 +570,74 @@ export default function SettingsModal({
                       <li>stdio MCP server</li>
                     </ul>
                     <button type="button" className={styles.secondaryButton} disabled>
-                      Current plan
+                      {!isTeamPlan ? "Current plan" : "Free tier"}
                     </button>
                   </article>
-                  <article className={styles.planCard}>
+                  <article
+                    className={`${styles.planCard}${isTeamPlan ? ` ${styles.planCardActive}` : ""}`}
+                  >
                     <h4>Team</h4>
-                    <p className={styles.planPrice}>$0 demo</p>
+                    <p className={styles.planPrice}>₹99</p>
                     <ul>
                       <li>Shared folders & invites</li>
                       <li>GitHub sync settings</li>
                       <li>API tokens for integrations</li>
                       <li>MCP client setup guide</li>
                     </ul>
-                    <button
-                      type="button"
-                      className={styles.primaryButton}
-                      onClick={() => {
-                        updateMcp({ notes: "Team plan selected (local demo)" });
-                        onRefresh();
-                      }}
-                    >
-                      Use Team features
-                    </button>
+                    {isTeamPlan ? (
+                      <button type="button" className={styles.secondaryButton} disabled>
+                        Current plan
+                      </button>
+                    ) : (
+                      <div className={styles.billingActions}>
+                        <button
+                          type="button"
+                          className={styles.primaryButton}
+                          disabled={billingBusy}
+                          onClick={() => void startTeamCheckout()}
+                        >
+                          {billingBusy ? "Opening Razorpay…" : "Upgrade with Razorpay"}
+                        </button>
+                        {isRazorpayTestMode ? (
+                          <button
+                            type="button"
+                            className={styles.secondaryButton}
+                            disabled={billingBusy}
+                            onClick={simulateTeamUpgrade}
+                          >
+                            Simulate success (test)
+                          </button>
+                        ) : null}
+                      </div>
+                    )}
                   </article>
                 </div>
+                {billingError ? <p className={styles.billingError}>{billingError}</p> : null}
+                {billingMessage ? <p className={styles.billingSuccess}>{billingMessage}</p> : null}
+                {isTeamPlan && workspace.billing?.upgradedAt ? (
+                  <p className={styles.billingMeta}>
+                    Team since {relativeTime(workspace.billing.upgradedAt)}
+                    {workspace.billing.razorpayPaymentId
+                      ? ` · Payment ${workspace.billing.razorpayPaymentId}`
+                      : ""}
+                  </p>
+                ) : (
+                  <div className={styles.billingHelp}>
+                    <p>
+                      <strong>Why “International cards are not supported”?</strong> Your Razorpay
+                      account only accepts domestic Indian cards right now. Don’t use a real /
+                      foreign card.
+                    </p>
+                    <p>
+                      In checkout, pick <strong>Netbanking</strong> → any bank → click{" "}
+                      <strong>Success</strong> on the mock bank page.
+                    </p>
+                    <p>
+                      Or Cards → domestic test Visa <code>4111 1111 1111 1111</code> · any future
+                      expiry · any CVV · OTP any 4–10 digits (e.g. <code>1234</code>).
+                    </p>
+                  </div>
+                )}
               </>
             )}
 
