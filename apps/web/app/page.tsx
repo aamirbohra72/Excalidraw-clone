@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { UserButton, useUser } from "@clerk/nextjs";
 import styles from "./dashboard.module.css";
 import SettingsModal from "./components/SettingsModal";
 import {
@@ -49,6 +50,7 @@ const FILTERS: Array<{ id: FileFilter; label: string }> = [
 
 export default function DashboardPage() {
   const router = useRouter();
+  const { user, isLoaded } = useUser();
   const [workspace, setWorkspace] = useState<WorkspaceState | null>(null);
   const [view, setView] = useState<WorkspaceView>("all");
   const [filter, setFilter] = useState<FileFilter>("all");
@@ -62,6 +64,9 @@ export default function DashboardPage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [folderError, setFolderError] = useState("");
+  const [renameTarget, setRenameTarget] = useState<{ id: string; name: string } | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [renameError, setRenameError] = useState("");
   const [settingsTab, setSettingsTab] = useState<
     | "members"
     | "billing"
@@ -92,6 +97,31 @@ export default function DashboardPage() {
     setFolderError("");
     setSelectedFolderId(folder.id);
     setView("folders");
+    refresh();
+  };
+
+  const openRename = (file: WorkspaceFile) => {
+    setMenuFileId(null);
+    setRenameTarget({ id: file.id, name: file.name });
+    setRenameValue(file.name);
+    setRenameError("");
+  };
+
+  const closeRename = () => {
+    setRenameTarget(null);
+    setRenameValue("");
+    setRenameError("");
+  };
+
+  const submitRename = () => {
+    if (!renameTarget) return;
+    const name = renameValue.trim();
+    if (!name) {
+      setRenameError("Enter a file name.");
+      return;
+    }
+    renameFile(renameTarget.id, name);
+    closeRename();
     refresh();
   };
 
@@ -193,7 +223,7 @@ export default function DashboardPage() {
     return () => window.clearTimeout(warm);
   }, [workspace, prefetchBoard]);
 
-  if (!workspace) {
+  if (!workspace || !isLoaded) {
     return <div className={styles.loading}>Loading workspace…</div>;
   }
 
@@ -202,7 +232,11 @@ export default function DashboardPage() {
       <aside className={styles.sidebar}>
         <button type="button" className={styles.teamButton} onClick={() => openSettings("team")}>
           <span className={styles.teamMark} aria-hidden />
-          <span>{workspace.teamName}</span>
+          <span>
+            {user?.firstName
+              ? `${user.firstName}'s Team`
+              : workspace.teamName}
+          </span>
           <span className={styles.caret}>▾</span>
         </button>
 
@@ -275,8 +309,14 @@ export default function DashboardPage() {
                 <kbd>Ctrl K</kbd>
               </label>
               <div className={styles.topRight}>
-                <div className={styles.avatars} title={workspace.author}>
-                  <span>{workspace.author.slice(0, 1).toUpperCase()}</span>
+                <div className={styles.avatars} title={user?.fullName || user?.primaryEmailAddress?.emailAddress || workspace.author}>
+                  <UserButton
+                    appearance={{
+                      elements: {
+                        avatarBox: { width: 32, height: 32 },
+                      },
+                    }}
+                  />
                 </div>
                 <button
                   type="button"
@@ -387,10 +427,15 @@ export default function DashboardPage() {
               {files.length === 0 ? (
                 <p className={styles.empty}>No files here yet. Create a blank file to start drawing.</p>
               ) : (
-                files.map((file) => {
+                files.map((file, index) => {
                   const folder = workspace.folders.find((item) => item.id === file.folderId);
+                  const menuOpen = menuFileId === file.id;
+                  const openUp = index >= files.length - 1;
                   return (
-                    <div key={file.id} className={styles.tableRow}>
+                    <div
+                      key={file.id}
+                      className={`${styles.tableRow}${menuOpen ? ` ${styles.tableRowMenuOpen}` : ""}`}
+                    >
                       <button
                         type="button"
                         className={styles.fileName}
@@ -416,21 +461,12 @@ export default function DashboardPage() {
                         >
                           ⋯
                         </button>
-                        {menuFileId === file.id ? (
-                          <div className={styles.menuPop}>
+                        {menuOpen ? (
+                          <div className={`${styles.menuPop}${openUp ? ` ${styles.menuPopUp}` : ""}`}>
                             <button type="button" onClick={() => openFile(file)}>
                               Open
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const name = window.prompt("Rename file", file.name);
-                                if (!name) return;
-                                renameFile(file.id, name);
-                                setMenuFileId(null);
-                                refresh();
-                              }}
-                            >
+                            <button type="button" onClick={() => openRename(file)}>
                               Rename
                             </button>
                             <div className={styles.menuMoveGroup}>
@@ -740,6 +776,58 @@ export default function DashboardPage() {
           </section>
         )}
       </main>
+
+      {renameTarget ? (
+        <div
+          className={styles.dialogOverlay}
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeRename();
+          }}
+        >
+          <div
+            className={styles.dialogCard}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="rename-dialog-title"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") closeRename();
+              if (event.key === "Enter") {
+                event.preventDefault();
+                submitRename();
+              }
+            }}
+          >
+            <div className={styles.dialogHeader}>
+              <h2 id="rename-dialog-title">Rename file</h2>
+              <p className={styles.muted}>Choose a clear name for this canvas.</p>
+            </div>
+            <label className={styles.dialogField}>
+              <span>File name</span>
+              <input
+                autoFocus
+                value={renameValue}
+                onChange={(event) => {
+                  setRenameValue(event.target.value);
+                  if (renameError) setRenameError("");
+                }}
+                onFocus={(event) => event.currentTarget.select()}
+                placeholder="Untitled File"
+                aria-invalid={Boolean(renameError)}
+              />
+            </label>
+            {renameError ? <p className={styles.dialogError}>{renameError}</p> : null}
+            <div className={styles.dialogActions}>
+              <button type="button" className={styles.secondaryButton} onClick={closeRename}>
+                Cancel
+              </button>
+              <button type="button" className={styles.primaryButton} onClick={submitRename}>
+                Save name
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <SettingsModal
         open={settingsOpen}

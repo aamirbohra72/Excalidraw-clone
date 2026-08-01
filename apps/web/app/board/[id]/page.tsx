@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { UserButton } from "@clerk/nextjs";
 import styles from "../board.module.css";
 import {
   BUILTIN_ICONS,
@@ -3555,6 +3556,15 @@ function BoardCanvas() {
           ))}
         </div>
         <div className={styles.topNavSpacer} aria-hidden />
+        <div className={styles.topNavUser}>
+          <UserButton
+            appearance={{
+              elements: {
+                avatarBox: { width: 30, height: 30 },
+              },
+            }}
+          />
+        </div>
       </header>
 
       <aside className={styles.sidebarRail} aria-label="Feature sidebar">

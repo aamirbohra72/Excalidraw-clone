@@ -279,7 +279,8 @@
   background: #ffffff;
   border: 1px solid #e5e7eb;
   border-radius: 14px;
-  overflow: hidden;
+  /* Keep visible so row action menus aren't clipped */
+  overflow: visible;
 }
 
 .tableHead,
@@ -296,6 +297,7 @@
   font-size: 12px;
   font-weight: 700;
   border-bottom: 1px solid #eef0f3;
+  border-radius: 14px 14px 0 0;
 }
 
 .tableRow {
@@ -303,6 +305,11 @@
   font-size: 13px;
   color: #4b5563;
   position: relative;
+  z-index: 0;
+}
+
+.tableRowMenuOpen {
+  z-index: 6;
 }
 
 .tableRow:hover {
@@ -369,8 +376,8 @@
 .menuPop {
   position: absolute;
   right: 0;
-  top: 30px;
-  z-index: 5;
+  top: calc(100% + 4px);
+  z-index: 20;
   width: 180px;
   max-height: 280px;
   overflow: auto;
@@ -381,6 +388,11 @@
   padding: 6px;
   display: flex;
   flex-direction: column;
+}
+
+.menuPopUp {
+  top: auto;
+  bottom: calc(100% + 4px);
 }
 
 .menuPop button {
@@ -707,6 +719,95 @@
     margin-left: 0;
     min-width: 0;
   }
+}
+
+/* -- Compact dialogs (rename, etc.) -- */
+
+.dialogOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgba(15, 23, 42, 0.4);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  backdrop-filter: blur(2px);
+}
+
+.dialogCard {
+  width: min(420px, 100%);
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.22);
+  padding: 22px 22px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  animation: dialogIn 140ms ease-out;
+}
+
+@keyframes dialogIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.dialogHeader h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.dialogHeader p {
+  margin: 6px 0 0;
+}
+
+.dialogField {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #4b5563;
+}
+
+.dialogField input {
+  width: 100%;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 11px 12px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #111827;
+  outline: none;
+  background: #fafbfc;
+}
+
+.dialogField input:focus {
+  border-color: #93c5fd;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.dialogError {
+  margin: -4px 0 0;
+  color: #dc2626;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.dialogActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
 }
 
 /* -- Settings modal (Eraser-style) -- */
